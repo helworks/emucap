@@ -464,3 +464,63 @@ fn method_without_feature_contract_is_unvalidated() {
         .iter()
         .any(|error| error.contains("no feature contract")));
 }
+
+#[test]
+fn psoxide_host_advertisement_validates_with_its_exceptions() {
+    let exceptions = [
+        "psoxide.memory-write.read-only-spaces",
+        "psoxide.memory-read.cpu-io-absent",
+        "psoxide.breakpoint.exec-pausing-only",
+        "psoxide.state-load.external-media",
+        "psoxide.screenshot.display-required",
+    ];
+    let value = advertisement_value(&exceptions);
+    let ad = ContractAdvertisement::Reported(serde_json::from_value(value).unwrap());
+    // The method set psoxide-emucap-host advertises in hello.
+    let methods = [
+        "hello",
+        "status",
+        "get_rom_info",
+        "get_state",
+        "read_memory",
+        "write_memory",
+        "read_memory_batch",
+        "pause",
+        "resume",
+        "step",
+        "step_instructions",
+        "step_input_polls",
+        "set_input",
+        "press_buttons",
+        "screenshot",
+        "save_state",
+        "load_state",
+        "reset",
+        "poll_events",
+        "set_breakpoint",
+        "clear_breakpoint",
+        "list_breakpoints",
+        "clear_all_breakpoints",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect::<Vec<_>>();
+    let status = validate_advertisement(&ad, Some("psoxide"), Some("psx"), &methods);
+
+    assert_eq!(status.state, "validated", "{:?}", status.errors);
+    assert_eq!(
+        status.constraints["memory.write.excluded_types"],
+        json!(["bios", "vram"])
+    );
+    assert_eq!(
+        status.constraints["breakpoint.kinds.allowed"],
+        json!(["exec"])
+    );
+    assert_eq!(
+        status.constraints["state.load.media_boundary"],
+        json!("current_disc_and_bios_preserved")
+    );
+    // Scope is exact: the Mednafen PS1 backend cannot claim PSoXide's narrowings.
+    let foreign = validate_advertisement(&ad, Some("mednafen"), Some("psx"), &methods);
+    assert_eq!(foreign.state, "unvalidated");
+}

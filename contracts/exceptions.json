@@ -1403,6 +1403,99 @@
       },
       "public_behavior": {"invalid": "bad_state"},
       "verification": ["contract-test:xemu-load-foreign-generation-rejected-before-mutation"]
+    },
+    {
+      "id": "psoxide.memory-write.read-only-spaces",
+      "feature": "memory.write",
+      "kind": "parameter_constraint",
+      "targets": ["CORE.REJECT.1", "MEM.WRITE.APPLY.1"],
+      "scope": {"adapter": "psoxide", "systems": ["psx"]},
+      "activation": {
+        "memory_type": ["bios", "vram"],
+        "cpu_address": "not_ram_or_scratchpad"
+      },
+      "constraints": {
+        "memory.write.excluded_types": ["bios", "vram"],
+        "memory.write.cpu.regions.allowed": ["ram", "scratchpad"]
+      },
+      "public_behavior": {"invalid": "unsupported"},
+      "verification": [
+        "contract-test:psoxide-memory-reads-writes-and-refusals",
+        "runtime-test:psoxide-refused-write-changes-nothing"
+      ]
+    },
+    {
+      "id": "psoxide.memory-read.cpu-io-absent",
+      "feature": "memory.read",
+      "kind": "parameter_constraint",
+      "targets": ["CORE.REJECT.1", "MEM.READ.EXACT.1"],
+      "scope": {"adapter": "psoxide", "systems": ["psx"]},
+      "activation": {
+        "memory_type": "cpu",
+        "cpu_address": "not_ram_scratchpad_or_bios"
+      },
+      "constraints": {
+        "memory.read.cpu.regions.allowed": ["ram", "scratchpad", "bios"]
+      },
+      "public_behavior": {"invalid": "bad_params"},
+      "verification": [
+        "contract-test:psoxide-cpu-classification-follows-the-segment-map",
+        "contract-test:psoxide-memory-reads-writes-and-refusals"
+      ]
+    },
+    {
+      "id": "psoxide.breakpoint.exec-pausing-only",
+      "feature": "debug.breakpoint",
+      "kind": "parameter_constraint",
+      "targets": ["CORE.PARAM.1", "CORE.REJECT.1", "BP.ARMED.1"],
+      "scope": {"adapter": "psoxide", "systems": ["psx"]},
+      "activation": {
+        "kind": "not_exec",
+        "exec_range": "crosses_address_segment",
+        "pause_on_hit": false,
+        "conditions": "present",
+        "snapshot": "present"
+      },
+      "constraints": {
+        "breakpoint.kinds.allowed": ["exec"],
+        "breakpoint.exec.range": "inclusive_segment_bits_masked",
+        "breakpoint.pause_on_hit.allowed": [true],
+        "breakpoint.conditions.supported": false,
+        "breakpoint.snapshot.supported": false,
+        "breakpoint.max_count": 256
+      },
+      "public_behavior": {"invalid": "bad_params"},
+      "verification": [
+        "contract-test:psoxide-exec-breakpoints-stop-before-the-instruction",
+        "contract-test:psoxide-breakpoints-match-across-segment-aliases"
+      ]
+    },
+    {
+      "id": "psoxide.state-load.external-media",
+      "feature": "state.load",
+      "kind": "evidence_constraint",
+      "targets": ["STATE.LOAD.MEDIA.1"],
+      "scope": {"adapter": "psoxide", "systems": ["psx"]},
+      "activation": {"snapshot": "any"},
+      "constraints": {
+        "state.load.media_boundary": "current_disc_and_bios_preserved",
+        "state.load.content_check": "none"
+      },
+      "verification": [
+        "contract-test:psoxide-save-and-load-state-round-trip",
+        "runtime-test:psoxide-host-state-loads-in-launch-savestate"
+      ]
+    },
+    {
+      "id": "psoxide.screenshot.display-required",
+      "feature": "video.capture",
+      "kind": "precondition_narrowing",
+      "targets": ["CORE.REJECT.1", "VIDEO.CURRENT.1"],
+      "scope": {"adapter": "psoxide", "systems": ["psx"]},
+      "activation": {"display": "not_configured"},
+      "constraints": {"video.capture.display.required": true},
+      "public_behavior": {"invalid": "bad_state"},
+      "verification": ["contract-test:psoxide-screenshots-are-png-with-provenance"]
     }
   ]
 }
