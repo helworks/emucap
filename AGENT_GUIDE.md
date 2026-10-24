@@ -466,7 +466,9 @@ The emucap patches provide native control while the guest is halted.
   `cargo build --release -p psoxide-emucap` in a PSoXide-emulator checkout and point
   `EMUCAP_PSOXIDE_BIN` at it. Mednafen stays the default PS1 backend; PSoXide is selected only
   explicitly. The host is headless, needs no BIOS (HLE kernel), and boots `.cue`/`.ccd`/`.bin`/`.iso`
-  discs or side-loaded PSX `.exe` files. It speaks the control wire from inside the emulator process
+  discs or side-loaded PSX `.exe` files. Its disc loader reads `MODE1`/`MODE2` tracks with raw
+  2352-byte or cooked 2048-byte sectors and `AUDIO` tracks; `launch_plan` blocks a `.cue` that
+  declares any other track mode, such as `MODE2/2336`. It speaks the control wire from inside the emulator process
   and runs every request on its emulator thread between frames, so reads while running observe a frame
   boundary. It supports controlled frozen start; route-tick frame, controller-poll, and instruction
   stepping; R3000A state; side-effect-free RAM, scratchpad, BIOS, VRAM, and CPU-map reads with a frozen

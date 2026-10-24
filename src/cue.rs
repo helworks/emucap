@@ -186,7 +186,23 @@ fn tokenize_directive(line: &str, cue: &Path, line_number: usize) -> io::Result<
     Ok(tokens)
 }
 
+/// One `TRACK` directive: its number and its declared mode (`MODE2/2352`, `AUDIO`, ...), spelled
+/// as the CUE sheet spells it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CueTrack {
+    pub number: u8,
+    pub mode: String,
+}
+
 fn parse_referenced_files(cue: &Path, bytes: &[u8]) -> io::Result<Vec<CueReference>> {
+    parse_entry(cue, bytes, &mut Vec::new())
+}
+
+fn parse_entry(
+    cue: &Path,
+    bytes: &[u8],
+    tracks: &mut Vec<CueTrack>,
+) -> io::Result<Vec<CueReference>> {
     let text = crate::media_graph::descriptor_text(bytes, "CUE")?;
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let base = cue.parent().unwrap_or_else(|| Path::new("."));
@@ -260,6 +276,10 @@ fn parse_referenced_files(cue: &Path, bytes: &[u8]) -> io::Result<Vec<CueReferen
             }
             last_track = Some(track);
             current_file_has_track = true;
+            tracks.push(CueTrack {
+                number: track,
+                mode: tokens[2].clone(),
+            });
             continue;
         }
 
@@ -332,6 +352,14 @@ fn parse_referenced_files(cue: &Path, bytes: &[u8]) -> io::Result<Vec<CueReferen
 pub fn referenced_files(cue: &Path) -> io::Result<Vec<CueReference>> {
     let bytes = read_entry(cue)?;
     parse_referenced_files(cue, &bytes)
+}
+
+/// The tracks a CUE entry declares, in order. Reads only the entry file, never its members.
+pub fn tracks(cue: &Path) -> io::Result<Vec<CueTrack>> {
+    let bytes = read_entry(cue)?;
+    let mut tracks = Vec::new();
+    parse_entry(cue, &bytes, &mut tracks)?;
+    Ok(tracks)
 }
 
 pub fn mednafen_sbi_reference(cue: &Path) -> io::Result<CueReference> {

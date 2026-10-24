@@ -1,6 +1,33 @@
 use super::*;
 
 #[test]
+fn tracks_lists_each_track_mode_across_files_without_opening_members() {
+    let dir = tempfile::tempdir().unwrap();
+    let cue = dir.path().join("disc.cue");
+    // Neither member exists: listing tracks reads only the entry file.
+    std::fs::write(
+        &cue,
+        "FILE \"data.bin\" BINARY\n  TRACK 01 MODE2/2048\n    INDEX 01 00:00:00\nFILE audio.bin BINARY\n  track 02 audio\n",
+    )
+    .unwrap();
+    assert_eq!(
+        tracks(&cue).unwrap(),
+        vec![
+            CueTrack {
+                number: 1,
+                mode: "MODE2/2048".into()
+            },
+            CueTrack {
+                number: 2,
+                mode: "audio".into()
+            },
+        ]
+    );
+    std::fs::write(&cue, "FILE \"data.bin\" BINARY\n  TRACK 01 MODE9/1234\n").unwrap();
+    assert!(tracks(&cue).is_err());
+}
+
+#[test]
 fn parses_quoted_and_unquoted_file_directives_case_insensitively() {
     let dir = tempfile::tempdir().unwrap();
     let cue = dir.path().join("disc.cue");

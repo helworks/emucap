@@ -11,6 +11,9 @@ Release compatibility is defined in [COMPATIBILITY.md](COMPATIBILITY.md).
 - Verify `regression_run` and `verify_determinism` cases against the same normalized identifier
   `get_rom_info.rom_sha1` reports. Composite media (CUE and other descriptors) now match their
   launch-bound content identity instead of the adapter's descriptor-file hash.
+- Block a PSoXide `launch_plan` for a CUE track mode its disc loader cannot read, such as
+  `MODE2/2336`, instead of failing the launch. Raw 2352-byte, cooked 2048-byte and audio tracks
+  are accepted.
 
 ## 1.1.0
 

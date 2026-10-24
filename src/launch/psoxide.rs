@@ -13,6 +13,18 @@ use super::{find_on_path, is_runnable_file, spawn_detached, LaunchSpec, RuntimeE
 /// Content the PSoXide host boots: disc images and side-loaded PSX-EXEs.
 pub const CONTENT_EXTENSIONS: &[&str] = &["cue", "ccd", "bin", "iso", "exe"];
 
+/// CUE track modes the PSoXide disc loader reads: raw 2352-byte sectors, cooked 2048-byte data
+/// sectors (PSoXide-emulator 4333df3 and later), and CD-DA audio. Any other mode (`MODE2/2336`,
+/// `CDG`, ...) fails at boot. This list is the whole capability check: change it when the PSoXide
+/// host's disc loader changes.
+pub const ACCEPTED_CUE_TRACK_MODES: &[&str] = &[
+    "MODE1/2352",
+    "MODE2/2352",
+    "MODE1/2048",
+    "MODE2/2048",
+    "AUDIO",
+];
+
 pub struct Launch<'a> {
     pub binary: &'a Path,
     pub content: &'a Path,
@@ -80,7 +92,39 @@ pub fn validate_content(content: &Path) -> io::Result<()> {
             "the PSoXide backend boots .cue, .ccd, .bin, .iso, or PSX .exe content",
         ));
     }
+    let is_cue = content
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("cue"));
+    if is_cue {
+        validate_cue_track_modes(content)?;
+    }
     Ok(())
+}
+
+/// Reject a CUE sheet that declares a track mode outside `ACCEPTED_CUE_TRACK_MODES` before
+/// anything is spawned, naming each unreadable track.
+fn validate_cue_track_modes(cue: &Path) -> io::Result<()> {
+    let unsupported = crate::cue::tracks(cue)?
+        .into_iter()
+        .filter(|track| {
+            !ACCEPTED_CUE_TRACK_MODES
+                .iter()
+                .any(|mode| track.mode.eq_ignore_ascii_case(mode))
+        })
+        .map(|track| format!("track {:02} is {}", track.number, track.mode))
+        .collect::<Vec<_>>();
+    if unsupported.is_empty() {
+        return Ok(());
+    }
+    Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!(
+            "the PSoXide backend cannot read this disc image ({}): its disc loader accepts CUE track modes {} only. Convert those tracks to one of these modes, or omit psx_backend to use the Mednafen backend.",
+            unsupported.join(", "),
+            ACCEPTED_CUE_TRACK_MODES.join(", ")
+        ),
+    ))
 }
 
 pub fn launch_spec(launch: &Launch<'_>, runtime_home: &Path) -> LaunchSpec {

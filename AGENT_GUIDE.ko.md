@@ -385,7 +385,8 @@ emucap 패치는 guest가 정지한 상태에서도 네이티브 제어 요청�
   `cargo build --release -p psoxide-emucap`으로 `psoxide-emucap-host`를 빌드하고
   `EMUCAP_PSOXIDE_BIN`으로 지정한다. PS1 기본 백엔드는 계속 Mednafen이며 PSoXide는 명시적으로만
   선택된다. 헤드리스 전용이고 BIOS가 필요 없으며(HLE 커널) `.cue`/`.ccd`/`.bin`/`.iso` 디스크와 PSX `.exe`를
-  부팅한다. 프레임(route tick)·컨트롤러 폴·명령 단위 스텝, 프로즌 시작, 메모리 배치, 2포트 입력, PNG 캡처,
+  부팅한다. 디스크 로더는 2352바이트 raw 또는 2048바이트 cooked 섹터의 `MODE1`/`MODE2` 트랙과
+  `AUDIO` 트랙을 읽으며, 그 밖의 트랙 모드(예: `MODE2/2336`)를 선언한 `.cue`는 `launch_plan`이 차단한다. 프레임(route tick)·컨트롤러 폴·명령 단위 스텝, 프로즌 시작, 메모리 배치, 2포트 입력, PNG 캡처,
   PSoXide 세이브스테이트, 리셋, exec 브레이크포인트, 이벤트를 지원한다.
 
 ## 더 보기

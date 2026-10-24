@@ -3387,3 +3387,56 @@ fn psoxide_planning_rejects_foreign_selection_and_unbootable_media() {
     assert_eq!(rejected["ready_to_launch"], false);
     assert_eq!(rejected["reason"], "psx_backend is supported only for PS1");
 }
+
+#[test]
+fn psoxide_planning_blocks_cue_track_modes_its_disc_loader_cannot_read() {
+    let plan_for = |cue: &std::path::Path| {
+        make_launch_plan(
+            Some(47826),
+            &LaunchPlanArgs {
+                content_path: Some(cue.display().to_string()),
+                system: Some("psx".into()),
+                pc98_backend: None,
+                psx_backend: Some(PsxBackendArgs::Psoxide),
+                indirect_media_approval: None,
+            },
+        )
+    };
+    let sector_blocker = |plan: &serde_json::Value| {
+        plan["launch_blockers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .find(|message| message.contains("disc loader accepts CUE track modes"))
+            .map(String::from)
+    };
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("xa.bin"), vec![0_u8; 2336 * 16]).unwrap();
+    let unreadable = dir.path().join("xa.cue");
+    std::fs::write(
+        &unreadable,
+        "FILE \"xa.bin\" BINARY\n  TRACK 01 MODE2/2336\n    INDEX 01 00:00:00\n",
+    )
+    .unwrap();
+    let plan = plan_for(&unreadable);
+    assert_eq!(plan["ready_to_launch"], false);
+    let blocker =
+        sector_blocker(&plan).expect("an unreadable track mode must be a launch_plan blocker");
+    assert!(blocker.contains("track 01 is MODE2/2336"), "{blocker}");
+
+    for (name, mode, sector) in [("raw", "MODE2/2352", 2352), ("cooked", "MODE2/2048", 2048)] {
+        std::fs::write(
+            dir.path().join(format!("{name}.bin")),
+            vec![0_u8; sector * 16],
+        )
+        .unwrap();
+        let cue = dir.path().join(format!("{name}.cue"));
+        std::fs::write(
+            &cue,
+            format!("FILE \"{name}.bin\" BINARY\n  TRACK 01 {mode}\n    INDEX 01 00:00:00\n"),
+        )
+        .unwrap();
+        assert_eq!(sector_blocker(&plan_for(&cue)), None, "{mode}");
+    }
+}

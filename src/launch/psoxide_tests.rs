@@ -69,17 +69,74 @@ fn start_frozen_requests_the_pre_first_instruction_boundary() {
 #[test]
 fn content_validation_accepts_disc_images_and_psx_executables_only() {
     let temp = tempfile::tempdir().unwrap();
-    for extension in ["cue", "ccd", "bin", "iso", "exe", "EXE"] {
+    for extension in ["ccd", "bin", "iso", "exe", "EXE"] {
         let path = temp.path().join(format!("game.{extension}"));
         std::fs::write(&path, b"content").unwrap();
         assert!(validate_content(&path).is_ok(), "{extension}");
     }
+    let cue = temp.path().join("game.cue");
+    std::fs::write(
+        &cue,
+        "FILE \"game.bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n",
+    )
+    .unwrap();
+    assert!(validate_content(&cue).is_ok());
     for extension in ["chd", "pbp", "zip"] {
         let path = temp.path().join(format!("game.{extension}"));
         std::fs::write(&path, b"content").unwrap();
         assert!(validate_content(&path).is_err(), "{extension}");
     }
     assert!(validate_content(&temp.path().join("missing.cue")).is_err());
+}
+
+#[test]
+fn cue_validation_admits_only_track_modes_the_disc_loader_reads() {
+    let temp = tempfile::tempdir().unwrap();
+    let cue = temp.path().join("disc.cue");
+    let write = |tracks: &str| {
+        std::fs::write(&cue, format!("FILE \"disc.bin\" BINARY\n{tracks}")).unwrap();
+    };
+    write(
+        "  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n  TRACK 02 AUDIO\n    INDEX 01 00:02:00\n",
+    );
+    assert!(validate_content(&cue).is_ok());
+    write("  TRACK 01 mode1/2352\n    INDEX 01 00:00:00\n");
+    assert!(validate_content(&cue).is_ok());
+    // Cooked 2048-byte data tracks are readable too.
+    write("  TRACK 01 MODE2/2048\n    INDEX 01 00:00:00\n  TRACK 02 MODE1/2048\n    INDEX 01 00:02:00\n");
+    assert!(validate_content(&cue).is_ok());
+
+    // Other modes, alone or after a readable track: every unreadable track is named.
+    for (tracks, named) in [
+        ("  TRACK 01 MODE2/2336\n    INDEX 01 00:00:00\n", vec!["track 01 is MODE2/2336"]),
+        (
+            "  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n  TRACK 02 CDG\n    INDEX 01 00:02:00\n  TRACK 03 MODE2/2336\n    INDEX 01 00:04:00\n",
+            vec!["track 02 is CDG", "track 03 is MODE2/2336"],
+        ),
+    ] {
+        write(tracks);
+        let error = validate_content(&cue).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        let message = error.to_string();
+        for track in named {
+            assert!(message.contains(track), "{message}");
+        }
+        assert!(!message.contains("track 01 is MODE2/2352"), "{message}");
+    }
+}
+
+#[test]
+fn every_accepted_cue_track_mode_is_one_the_cue_parser_recognises() {
+    let temp = tempfile::tempdir().unwrap();
+    let cue = temp.path().join("disc.cue");
+    for mode in ACCEPTED_CUE_TRACK_MODES {
+        std::fs::write(
+            &cue,
+            format!("FILE \"disc.bin\" BINARY\n  TRACK 01 {mode}\n    INDEX 01 00:00:00\n"),
+        )
+        .unwrap();
+        assert!(validate_content(&cue).is_ok(), "{mode}");
+    }
 }
 
 #[test]
