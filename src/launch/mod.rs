@@ -24,6 +24,7 @@ pub mod np2kai;
 pub mod openmsx;
 pub mod pcsx2;
 pub mod ppsspp;
+pub mod psoxide;
 pub mod spec;
 pub mod xemu;
 
