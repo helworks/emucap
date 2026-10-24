@@ -993,7 +993,10 @@ pub(crate) fn make_launch_plan(port: Option<u16>, args: &LaunchPlanArgs) -> serd
         preferred_launcher_args["start_frozen"] = serde_json::json!(true);
     } else if adapter == "psoxide" {
         preferred_launcher_args["psx_backend"] = serde_json::json!("psoxide");
-        preferred_launcher_args["start_frozen"] = serde_json::json!(true);
+        // A Play-session window starts running so the replay plays out on screen.
+        if !(display && args.play_tape.is_some()) {
+            preferred_launcher_args["start_frozen"] = serde_json::json!(true);
+        }
         if let Some(tape) = &args.play_tape {
             preferred_launcher_args["play_tape"] = serde_json::json!(tape);
         }

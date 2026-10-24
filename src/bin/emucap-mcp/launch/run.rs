@@ -866,7 +866,9 @@ pub(super) fn launch_psoxide(
     };
     let display = a.display == Some(true);
     let play_tape = a.play_tape.as_deref().map(Path::new);
-    if let Err(error) = psoxide_launch::validate_play_tape(display, play_tape) {
+    if let Err(error) = psoxide_launch::validate_play_tape(display, play_tape).and_then(|()| {
+        psoxide_launch::validate_play_session_start(display, play_tape, a.start_frozen)
+    }) {
         return serde_json::json!({
             "launched": false,
             "error_code": "bad_params",

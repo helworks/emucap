@@ -265,6 +265,21 @@ fn display_launch_without_play_tape_is_rejected() {
 }
 
 #[test]
+fn play_session_window_start_frozen_is_rejected() {
+    let temp = tempfile::tempdir().unwrap();
+    let tape = temp.path().join("play.tape");
+    let error = validate_play_session_start(true, Some(&tape), true).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    assert_eq!(
+        error.to_string(),
+        "a Play session window starts running; omit start_frozen"
+    );
+    // A headless Play session and a window without start_frozen are unaffected.
+    validate_play_session_start(false, Some(&tape), true).unwrap();
+    validate_play_session_start(true, Some(&tape), false).unwrap();
+}
+
+#[test]
 fn gui_binary_override_is_authoritative() {
     let _lock = lock_env();
     let _guard = EnvGuard::new(&["EMUCAP_PSOXIDE_GUI_BIN"]);

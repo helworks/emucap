@@ -3573,10 +3573,58 @@ fn psoxide_display_plan_with_play_tape_is_ready() {
         .as_str()
         .unwrap()
         .contains("EMUCAP_PSOXIDE_GUI_BIN"));
+    // A Play-session window starts running; a frozen one would sit on the black boot frame.
+    assert!(
+        plan["preferred_launcher"]["args"]
+            .get("start_frozen")
+            .is_none(),
+        "{plan}"
+    );
+    let headless = plan_for(None, Some(tape.display().to_string()));
+    assert_eq!(headless["preferred_launcher"]["args"]["start_frozen"], true);
 
     let without_tape = plan_for(Some(true), None);
     assert_eq!(without_tape["ready_to_launch"], false);
     assert!(without_tape["launch_blockers"]
         .to_string()
         .contains("pass play_tape"));
+}
+
+#[test]
+fn psoxide_play_session_window_launch_rejects_start_frozen() {
+    let temp = tempfile::tempdir().unwrap();
+    let exe = temp.path().join("game.exe");
+    std::fs::write(&exe, b"PS-X EXE").unwrap();
+    let tape = temp.path().join("play.tape");
+    let failure = temp.path().join("failure.json");
+    let outcome = launch_psoxide(
+        47827,
+        None,
+        RuntimeEnv {
+            launch_id: "launch-01arz3ndektsv4rrffq69g5fav",
+            adapter_failure_path: &failure,
+        },
+        &LaunchArgs {
+            content_path: exe.display().to_string(),
+            content_path2: None,
+            system: Some("psx".into()),
+            pc98_backend: None,
+            psx_backend: Some(PsxBackendArgs::Psoxide),
+            play_tape: Some(tape.display().to_string()),
+            indirect_media_approval: None,
+            name: None,
+            display: Some(true),
+            sound: None,
+            pc98_sound_board: None,
+            start_frozen: true,
+            execution_profile: None,
+            replace: false,
+        },
+    );
+    assert_eq!(outcome["launched"], false, "{outcome}");
+    assert_eq!(outcome["error_code"], "bad_params");
+    assert_eq!(
+        outcome["reason"],
+        "a Play session window starts running; omit start_frozen"
+    );
 }

@@ -113,6 +113,22 @@ pub fn validate_play_tape(display: bool, play_tape: Option<&Path>) -> io::Result
     Ok(())
 }
 
+/// A Play-session window starts running: the replay plays out on screen and hands over to the
+/// player. Frozen, it would show the black boot frame until an agent resumed it.
+pub fn validate_play_session_start(
+    display: bool,
+    play_tape: Option<&Path>,
+    start_frozen: bool,
+) -> io::Result<()> {
+    if display && play_tape.is_some() && start_frozen {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a Play session window starts running; omit start_frozen",
+        ));
+    }
+    Ok(())
+}
+
 pub fn validate_content(content: &Path) -> io::Result<()> {
     if !content.is_file() {
         return Err(io::Error::new(
@@ -210,6 +226,7 @@ pub fn launch_spec(launch: &Launch<'_>, runtime_home: &Path) -> LaunchSpec {
 
 pub fn launch(launch: &Launch<'_>) -> io::Result<Launched> {
     validate_play_tape(launch.display, launch.play_tape)?;
+    validate_play_session_start(launch.display, launch.play_tape, launch.start_frozen)?;
     validate_content(launch.content)?;
     let runtime_home = super::emu_generation_dir("psoxide", launch.port, launch.runtime)?;
     let pid = spawn_detached(&launch_spec(launch, &runtime_home))?;
