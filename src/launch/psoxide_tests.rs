@@ -192,6 +192,7 @@ fn display_launch_uses_the_play_session_window() {
     for expected in [
         ("EMUCAP_CONTENT", content.to_str().unwrap()),
         ("EMUCAP_NAME", "psx-play"),
+        ("EMUCAP_PORT", "47892"),
         ("EMUCAP_SESSION_TOKEN", "front-direct-token"),
         ("EMUCAP_LAUNCH_ID", "launch-01arz3ndektsv4rrffq69g5fav"),
     ] {
@@ -233,6 +234,9 @@ fn headless_launch_forwards_play_tape() {
             tape.to_str().unwrap(),
         ]
     );
+    assert!(spec
+        .env
+        .contains(&("EMUCAP_PORT".to_string(), "47893".to_string())));
 }
 
 #[test]

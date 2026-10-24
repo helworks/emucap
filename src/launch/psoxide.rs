@@ -64,14 +64,13 @@ fn gui_binary_name() -> &'static str {
     }
 }
 
-/// `EMUCAP_PSOXIDE_BIN` pins the producer. Otherwise prefer a host installed beside the running
-/// emucap binary, then a repo-local build, then `PATH`.
-pub fn resolve_binary(repo_root: &Path) -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EMUCAP_PSOXIDE_BIN") {
+/// Resolve a producer binary: the explicit `override_env` path is authoritative; otherwise prefer
+/// one installed beside the running emucap binary, then a repo-local build, then `PATH`.
+fn resolve_named(repo_root: &Path, override_env: &str, name: &str) -> Option<PathBuf> {
+    if let Some(explicit) = std::env::var_os(override_env) {
         let path = PathBuf::from(explicit);
         return is_runnable_file(&path).then_some(path);
     }
-    let name = binary_name();
     let mut candidates = Vec::new();
     if let Ok(executable) = std::env::current_exe() {
         if let Some(directory) = executable.parent() {
@@ -85,26 +84,15 @@ pub fn resolve_binary(repo_root: &Path) -> Option<PathBuf> {
         .or_else(|| find_on_path(name))
 }
 
+/// `EMUCAP_PSOXIDE_BIN` pins the headless producer.
+pub fn resolve_binary(repo_root: &Path) -> Option<PathBuf> {
+    resolve_named(repo_root, "EMUCAP_PSOXIDE_BIN", binary_name())
+}
+
 /// `EMUCAP_PSOXIDE_GUI_BIN` pins the Play-session window binary (`psoxide-emulator`, built with
-/// `--features emucap`). Otherwise prefer one installed beside the running emucap binary, then a
-/// repo-local build, then `PATH`.
+/// `--features emucap`).
 pub fn resolve_gui_binary(repo_root: &Path) -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EMUCAP_PSOXIDE_GUI_BIN") {
-        let path = PathBuf::from(explicit);
-        return is_runnable_file(&path).then_some(path);
-    }
-    let name = gui_binary_name();
-    let mut candidates = Vec::new();
-    if let Ok(executable) = std::env::current_exe() {
-        if let Some(directory) = executable.parent() {
-            candidates.push(directory.join(name));
-        }
-    }
-    candidates.push(repo_root.join("target/release").join(name));
-    candidates
-        .into_iter()
-        .find(|path| is_runnable_file(path))
-        .or_else(|| find_on_path(name))
+    resolve_named(repo_root, "EMUCAP_PSOXIDE_GUI_BIN", gui_binary_name())
 }
 
 /// A PSoXide window is a Play session, and a Play session needs its tape. The tape path is
@@ -203,7 +191,11 @@ pub fn launch_spec(launch: &Launch<'_>, runtime_home: &Path) -> LaunchSpec {
         spec = spec.arg("--tape").arg(tape.to_string_lossy().into_owned());
     }
     // Relative save-state paths resolve inside the launch generation.
-    spec = spec.env("EMUCAP_CONTENT", content).cwd(runtime_home);
+    // The window has no `--port`; both producers read the endpoint from EMUCAP_PORT.
+    spec = spec
+        .env("EMUCAP_CONTENT", content)
+        .env("EMUCAP_PORT", launch.port.to_string())
+        .cwd(runtime_home);
     if launch.start_frozen {
         spec = spec.env("EMUCAP_START_FROZEN", "1");
     }
