@@ -329,6 +329,91 @@ fn prepare_profile(l: &Launch<'_>) -> io::Result<PathBuf> {
     Ok(home)
 }
 
+/// The directory marker PPSSPP's PBP/ELF loader treats as memory-stick content.
+const MEMSTICK_GAME_MARKER: &str = "PSP/GAME/";
+
+/// The memory-stick-relative game directory PPSSPP will resolve `content` to, or `None` when
+/// PPSSPP boots it from `host0:` instead. This mirrors `Load_PSP_ELF_PBP` (Core/PSPLoaders.cpp):
+/// a PBP or ELF whose directory contains `PSP/GAME/` (case-sensitive, after PPSSPP's Windows
+/// backslash-to-slash normalization) boots as `ms0:/<directory from PSP/GAME/ on>/<file>`, which
+/// resolves against the configured memory-stick root rather than the content's own directory.
+/// ISO/CSO content goes through the UMD loader, which has no such mapping.
+fn memstick_game_dir(content: &Path) -> Option<PathBuf> {
+    let extension = content.extension()?.to_str()?.to_ascii_lowercase();
+    if !matches!(extension.as_str(), "pbp" | "elf") {
+        return None;
+    }
+    let directory = content.parent()?.to_str()?;
+    let directory = if cfg!(windows) {
+        directory.replace('\\', "/")
+    } else {
+        directory.to_string()
+    };
+    let start = directory.find(MEMSTICK_GAME_MARKER)?;
+    let relative = directory[start..]
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<PathBuf>();
+    relative
+        .components()
+        .all(|component| matches!(component, std::path::Component::Normal(_)))
+        .then_some(relative)
+}
+
+/// Install memory-stick-shaped content into the generation's own memory stick and return the
+/// path PPSSPP must boot. emucap pins PPSSPP's memory stick to a fresh per-generation directory
+/// (`EMUCAP_PPSSPP_MEMSTICK`), so an EBOOT booted in place from `<somewhere>/PSP/GAME/<NAME>/`
+/// would resolve `ms0:/PSP/GAME/<NAME>/EBOOT.PBP` inside that empty stick and fail to boot. Copying
+/// the game directory to the same memory-stick-relative location reproduces what PPSSPP expects
+/// (the game installed on the stick) while saves, system files and any guest writes stay inside
+/// the isolated generation. Other content is booted from its original path unchanged.
+fn stage_memstick_content(content: &str, memstick: &Path) -> io::Result<String> {
+    let content_path = Path::new(content);
+    let Some(relative) = memstick_game_dir(content_path) else {
+        return Ok(content.to_string());
+    };
+    let (Some(source), Some(file_name)) = (content_path.parent(), content_path.file_name()) else {
+        return Ok(content.to_string());
+    };
+    let destination = memstick.join(&relative);
+    if std::fs::symlink_metadata(&destination).is_ok() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!(
+                "generation memory stick already contains {}",
+                destination.display()
+            ),
+        ));
+    }
+    super::copy_dir_contents(source, &destination).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!(
+                "install {} into the generation memory stick: {error}",
+                source.display()
+            ),
+        )
+    })?;
+    let staged = destination.join(file_name);
+    // PPSSPP locates the stick-relative directory from the first marker in the path it boots, so
+    // the staged path must map back to exactly the directory it was installed at.
+    if memstick_game_dir(&staged) != Some(relative) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "generation memory stick path {} itself contains {MEMSTICK_GAME_MARKER}",
+                memstick.display()
+            ),
+        ));
+    }
+    staged.into_os_string().into_string().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "staged PPSSPP content path is not UTF-8",
+        )
+    })
+}
+
 /// Display (HITL) mode launches the `PPSSPPSDL` GUI build with the same `--debugger=<port>` and
 /// positional content, but omits `--graphics=software` so the window renders with the real GPU
 /// backend (Vulkan/GL). Upstream command-line handling honors `--debugger=<port>`:
@@ -337,9 +422,13 @@ fn prepare_profile(l: &Launch<'_>) -> io::Result<PathBuf> {
 /// Unlike headless, the GUI does not set `startBreak`, so the game boots running and the human can
 /// play immediately while the agent attaches. Both modes run under an isolated generation profile
 /// (`isolation_env`) so a session never reads or pollutes the operator's real PPSSPP config/saves.
+///
+/// `boot_content` is the path PPSSPP boots: `l.content`, or its memory-stick installation from
+/// `stage_memstick_content`. The bridge keeps hashing the original `l.content`.
 fn emu_spec(
     l: &Launch,
     profile_home: &Path,
+    boot_content: &str,
     ws_port: u16,
     native_debug_token: &str,
 ) -> io::Result<LaunchSpec> {
@@ -350,9 +439,9 @@ fn emu_spec(
         spec = spec.env(k, v);
     }
     Ok(if l.display {
-        spec.arg(l.content)
+        spec.arg(boot_content)
     } else {
-        spec.arg("--graphics=software").arg(l.content)
+        spec.arg("--graphics=software").arg(boot_content)
     })
 }
 
@@ -393,13 +482,20 @@ fn bridge_spec(l: &Launch, ws_port: u16, native_debug_token: &str) -> LaunchSpec
 pub fn launch(l: &Launch) -> io::Result<Launched> {
     validate_session_token(l)?;
     let profile_home = prepare_profile(l)?;
+    let boot_content = stage_memstick_content(l.content, &profile_home.join("memstick"))?;
     let native_debug_token = new_native_debug_token();
     let ws_res = resolve_ws_port()?;
     let ws_port = ws_res.port;
     // Free the reserved port for PPSSPP to bind before spawning it.
     drop(ws_res);
 
-    let ppsspp_pid = spawn_detached(&emu_spec(l, &profile_home, ws_port, &native_debug_token)?)?;
+    let ppsspp_pid = spawn_detached(&emu_spec(
+        l,
+        &profile_home,
+        &boot_content,
+        ws_port,
+        &native_debug_token,
+    )?)?;
     // PPSSPP PID를 spawn 직후 즉시 기록한다 — 이후 단계(WS 대기·bridge spawn)가 실패해 종료 처리로
     // 넘어가도, terminate가 혹시 놓친 프로세스를 status.owned_instance가 이 pidfile로 찾아 정리할 수
     // 있게 한다. 성공 시 bridge.pid는 아래에서 추가 기록한다.

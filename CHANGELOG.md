@@ -4,6 +4,11 @@ Release compatibility is defined in [COMPATIBILITY.md](COMPATIBILITY.md).
 
 ## Unreleased
 
+### Fixed
+- Boot a PPSSPP PBP/ELF in place from a `PSP/GAME/<NAME>/` directory. PPSSPP resolves such content
+  on the memory stick, so the launcher installs the game directory into the generation's isolated
+  memory stick and boots that copy.
+
 ## 1.1.0
 
 ### Added

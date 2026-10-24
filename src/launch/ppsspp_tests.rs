@@ -134,7 +134,7 @@ fn emu_spec_passes_content_positionally_not_as_mount_flag() {
     let log = dir.path().join("ppsspp.log");
     let l = launch_for(&binary, &bridge, &log);
     let profile = dir.path().join("profile");
-    let spec = emu_spec(&l, &profile, 48900, "native-debug-token").unwrap();
+    let spec = emu_spec(&l, &profile, l.content, 48900, "native-debug-token").unwrap();
     assert_eq!(
         spec.args,
         vec!["--debugger=48900", "--graphics=software", "/roms/game.iso"]
@@ -180,7 +180,7 @@ fn emu_spec_display_drops_software_graphics_for_a_real_window() {
     let mut l = launch_for(&binary, &bridge, &log);
     l.display = true;
     let profile = dir.path().join("profile");
-    let spec = emu_spec(&l, &profile, 48900, "native-debug-token").unwrap();
+    let spec = emu_spec(&l, &profile, l.content, 48900, "native-debug-token").unwrap();
     // Display (HITL) mode keeps the same --debugger=<port> and positional content, but omits
     // --graphics=software so the GUI window renders with the real GPU backend.
     assert_eq!(spec.args, vec!["--debugger=48900", "/roms/game.iso"]);
@@ -212,7 +212,7 @@ fn emu_spec_display_isolates_the_profile_from_the_real_home() {
     let expected_home = emu_home
         .path()
         .join("sessions/47850/generations/test/emulators/ppsspp");
-    let spec = emu_spec(&l, &expected_home, 48900, "native-debug-token").unwrap();
+    let spec = emu_spec(&l, &expected_home, l.content, 48900, "native-debug-token").unwrap();
 
     // HOME points at the emucap-owned generation dir, not the real HOME.
     let home = &spec
@@ -234,6 +234,105 @@ fn emu_spec_display_isolates_the_profile_from_the_real_home() {
         .expect("display spec must pin an isolated memstick")
         .1;
     assert!(Path::new(memstick).starts_with(&expected_home));
+}
+
+#[test]
+fn memstick_game_dir_follows_the_ppsspp_pbp_loader_mapping() {
+    use std::path::PathBuf;
+    let dir = super::memstick_game_dir;
+    // A PBP or ELF under PSP/GAME/ boots as ms0:/PSP/GAME/<rest of its directory>/.
+    assert_eq!(
+        dir(Path::new("/builds/output/PSP/GAME/HELENGINE/EBOOT.PBP")),
+        Some(PathBuf::from("PSP/GAME/HELENGINE"))
+    );
+    assert_eq!(
+        dir(Path::new("/stick/PSP/GAME/CAT/DEMO/demo.elf")),
+        Some(PathBuf::from("PSP/GAME/CAT/DEMO"))
+    );
+    #[cfg(windows)]
+    assert_eq!(
+        dir(Path::new(r"C:\builds\output\PSP\GAME\HELENGINE\EBOOT.PBP")),
+        Some(PathBuf::from("PSP/GAME/HELENGINE"))
+    );
+    // Everything else boots from host0: at its own directory.
+    assert_eq!(dir(Path::new("/builds/HELENGINE/EBOOT.PBP")), None);
+    assert_eq!(dir(Path::new("/builds/PSP/GAME/EBOOT.PBP")), None);
+    // The loader's marker search is case-sensitive.
+    assert_eq!(dir(Path::new("/builds/psp/game/HELENGINE/EBOOT.PBP")), None);
+    // UMD images take the ISO loader, which has no memory-stick mapping.
+    assert_eq!(dir(Path::new("/stick/PSP/GAME/X/game.iso")), None);
+    assert_eq!(dir(Path::new("/stick/PSP/GAME/X/game.cso")), None);
+}
+
+#[test]
+fn memstick_content_is_installed_into_the_generation_stick() {
+    let root = tempfile::tempdir().unwrap();
+    let game = root.path().join("output/PSP/GAME/HELENGINE");
+    std::fs::create_dir_all(game.join("data")).unwrap();
+    std::fs::write(game.join("EBOOT.PBP"), b"\0PBPeboot").unwrap();
+    std::fs::write(game.join("data/scene.bin"), b"cooked").unwrap();
+    let memstick = root.path().join("generation/memstick");
+    std::fs::create_dir_all(&memstick).unwrap();
+    let content = game.join("EBOOT.PBP").to_str().unwrap().to_string();
+
+    let boot = super::stage_memstick_content(&content, &memstick).unwrap();
+
+    let installed = memstick.join("PSP/GAME/HELENGINE");
+    assert_eq!(Path::new(&boot), installed.join("EBOOT.PBP"));
+    assert_eq!(
+        std::fs::read(installed.join("EBOOT.PBP")).unwrap(),
+        b"\0PBPeboot"
+    );
+    assert_eq!(
+        std::fs::read(installed.join("data/scene.bin")).unwrap(),
+        b"cooked"
+    );
+    // The installed copy is what the loader will map; the source tree is left untouched.
+    assert_eq!(
+        super::memstick_game_dir(Path::new(&boot)),
+        Some(std::path::PathBuf::from("PSP/GAME/HELENGINE"))
+    );
+    assert_eq!(std::fs::read_dir(&game).unwrap().count(), 2);
+
+    // A generation stick is fresh; an existing installation is never merged into.
+    let error = super::stage_memstick_content(&content, &memstick).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+}
+
+#[test]
+fn host_content_boots_from_its_original_path() {
+    let root = tempfile::tempdir().unwrap();
+    let memstick = root.path().join("memstick");
+    std::fs::create_dir_all(&memstick).unwrap();
+    let eboot = root.path().join("HELENGINE/EBOOT.PBP");
+    std::fs::create_dir_all(eboot.parent().unwrap()).unwrap();
+    std::fs::write(&eboot, b"\0PBP").unwrap();
+    for content in [eboot.to_str().unwrap(), "/roms/game.iso"] {
+        assert_eq!(
+            super::stage_memstick_content(content, &memstick).unwrap(),
+            content
+        );
+    }
+    assert_eq!(std::fs::read_dir(&memstick).unwrap().count(), 0);
+}
+
+#[test]
+fn staged_boot_content_reaches_ppsspp_while_the_bridge_keeps_the_original() {
+    let dir = tempfile::tempdir().unwrap();
+    let binary = dir.path().join("PPSSPPHeadless");
+    let bridge = dir.path().join("bridge");
+    let log = dir.path().join("ppsspp.log");
+    let mut l = launch_for(&binary, &bridge, &log);
+    l.content = "/builds/output/PSP/GAME/HELENGINE/EBOOT.PBP";
+    let profile = dir.path().join("profile");
+    let staged = "/profile/memstick/PSP/GAME/HELENGINE/EBOOT.PBP";
+    let spec = emu_spec(&l, &profile, staged, 48900, "native-debug-token").unwrap();
+    assert_eq!(spec.args.last().map(String::as_str), Some(staged));
+    assert!(!spec.args.iter().any(|a| a == l.content));
+    let relay = bridge_spec(&l, 48900, "native-debug-token");
+    assert!(relay
+        .env
+        .contains(&("EMUCAP_CONTENT".to_string(), l.content.to_string())));
 }
 
 #[test]
