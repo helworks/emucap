@@ -483,6 +483,11 @@ pub(crate) fn runtime_paths(port: Option<u16>) -> serde_json::Value {
             "ppsspp": {
                 "build": abs_path_json(&root, &["adapters", "ppsspp", "build.sh"]),
             },
+            "psoxide": {
+                "build": "cargo build --release -p psoxide-emucap (in a PSoXide-emulator checkout)",
+                "adapter_binary": abs_path_json(&root, &["target", "release", if cfg!(windows) { "psoxide-emucap-host.exe" } else { "psoxide-emucap-host" }]),
+                "binary_env": "EMUCAP_PSOXIDE_BIN",
+            },
             "pcsx2": {
                 "build": abs_path_json(&root, &["adapters", "pcsx2", "build.sh"]),
                 "bios_env": "EMUCAP_PCSX2_BIOS",
@@ -584,7 +589,10 @@ fn build_supported_systems_value() -> serde_json::Value {
             "system": "psx",
             "aliases": ["ps1", "playstation"],
             "adapter": "mednafen",
+            "selectable_backends": ["mednafen", "psoxide"],
             "content": ["cue", "bin", "chd", "iso"],
+            "backend_content": {"psoxide": ["cue", "ccd", "bin", "iso", "exe"]},
+            "notes": "Mednafen remains the default backend and needs a real BIOS. Select psx_backend=psoxide explicitly for the headless PSoXide host: HLE BIOS, PSX-EXE side-loading, route-tick frame, controller-poll, and instruction steps, exec breakpoints, input tapes, and launch --dump-hash display hashes. It never switches automatically."
         },
         {
             "system": "pce",

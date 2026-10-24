@@ -1,5 +1,7 @@
 use super::*;
-use crate::args::{LaunchExecutionProfileArgs, Pc98BackendArgs, Pc98SoundBoardArgs};
+use crate::args::{
+    LaunchExecutionProfileArgs, Pc98BackendArgs, Pc98SoundBoardArgs, PsxBackendArgs,
+};
 #[cfg(unix)]
 use emucap::live::continuity::{ContinuitySnapshot, RuntimeBinding, RuntimeBindingState};
 use emucap::live::link::{Capabilities, LinkError};
@@ -337,6 +339,7 @@ fn launch_plan_exposes_only_the_mcp_launcher() {
             content_path: Some("/tmp/game.iso".into()),
             system: Some("ps2".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -453,6 +456,7 @@ fn launch_plan_for_xbox_makes_hidden_audio_an_explicit_choice() {
             content_path: Some("/tmp/game.iso".into()),
             system: Some("xbox".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -616,6 +620,7 @@ fn launch_plan_for_neogeo_aes_requires_software_list_media_and_aes_bios() {
             content_path: Some("/tmp/mslug2.zip".into()),
             system: Some("neogeo_aes".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -641,6 +646,7 @@ fn launch_plan_for_neogeo_cd_requires_explicit_cue_and_cdz_bios() {
             content_path: Some("/tmp/disc.cue".into()),
             system: Some("neogeo_cd".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -834,6 +840,7 @@ fn launch_plan_without_content_requests_only_the_content_path() {
             content_path: None,
             system: None,
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -859,6 +866,7 @@ fn launch_plan_with_ambiguous_media_preserves_content_and_requests_system() {
             content_path: Some(content_path.into()),
             system: None,
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -893,6 +901,7 @@ fn launch_plan_blocks_a_cue_graph_that_escapes_its_directory() {
             content_path: Some(cue.display().to_string()),
             system: Some("saturn".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -920,6 +929,7 @@ fn launch_plan_blocks_a_gdi_graph_that_escapes_its_directory() {
             content_path: Some(gdi.display().to_string()),
             system: Some("dc".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -938,6 +948,7 @@ fn launch_plan_reviews_indirect_members_before_checking_their_files() {
             content_path: Some(cue.display().to_string()),
             system: Some("saturn".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -961,6 +972,7 @@ fn launch_plan_reviews_indirect_members_before_checking_their_files() {
             content_path: Some(cue.display().to_string()),
             system: Some("saturn".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: Some(approval),
         },
     );
@@ -979,6 +991,7 @@ fn launch_plan_with_explicit_system_and_no_content_preserves_system() {
             content_path: None,
             system: Some("nes".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -1005,6 +1018,7 @@ fn launch_plan_for_nes_uses_mesen2_and_nes_entry() {
             content_path: Some("/tmp/game.nes".into()),
             system: None,
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -1028,6 +1042,7 @@ fn launch_plan_for_gameboy_family_uses_mesen2_and_gb_entry() {
                 content_path: Some(format!("/tmp/game.{ext}")),
                 system: None,
                 pc98_backend: None,
+                psx_backend: None,
                 indirect_media_approval: None,
             },
         );
@@ -1067,6 +1082,7 @@ fn launch_plan_for_md_uses_mednafen_force_module() {
             content_path: Some("/tmp/game.md".into()),
             system: None,
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -1103,6 +1119,7 @@ fn launch_plan_blocks_missing_content_even_with_binary() {
             content_path: Some(missing.display().to_string()),
             system: None,
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -1152,6 +1169,7 @@ fn launch_plan_ready_when_content_and_binary_exist() {
             content_path: Some(rom.display().to_string()),
             system: None,
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -1202,6 +1220,7 @@ fn launch_plan_task_entry_blocker_overrides_local_readiness_and_preserves_replan
         content_path: Some(rom.display().to_string()),
         system: None,
         pc98_backend: None,
+        psx_backend: None,
         indirect_media_approval: None,
     };
     let mut plan = make_launch_plan(Some(47804), &args);
@@ -1252,6 +1271,7 @@ fn launch_plan_preserved_failure_action_overrides_local_planning() {
         content_path: Some("/tmp/game.sfc".into()),
         system: Some("snes".into()),
         pc98_backend: None,
+        psx_backend: None,
         indirect_media_approval: None,
     };
     let mut plan = serde_json::json!({
@@ -1296,6 +1316,7 @@ fn launch_plan_for_explicit_md_accepts_ambiguous_bin() {
             content_path: Some("/tmp/game.bin".into()),
             system: Some("genesis".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -1321,6 +1342,7 @@ fn launch_plan_for_pc98_uses_repo_launcher_and_headless_contract() {
             content_path: Some("/tmp/game.hdi".into()),
             system: None,
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -1372,6 +1394,7 @@ fn launch_plan_for_neogeo_mvs_uses_dedicated_adapter_without_zip_inference() {
             content_path: Some("/tmp/mslug.zip".into()),
             system: Some("neogeo_mvs".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -1396,6 +1419,7 @@ fn launch_plan_for_n64_uses_native_mupen64plus_adapter() {
             content_path: Some("/tmp/test.v64".into()),
             system: Some("n64".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -1425,6 +1449,7 @@ fn launch_plan_for_saturn_declares_isolated_firmware_and_controlled_start() {
             content_path: Some("/tmp/test.cue".into()),
             system: Some("saturn".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -1463,6 +1488,7 @@ fn launch_plan_for_msx_uses_stock_openmsx_bridge() {
             content_path: Some("/tmp/test.rom".into()),
             system: Some("msx".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -1484,6 +1510,7 @@ fn launch_plan_for_real_msx_machine_requires_operator_firmware() {
             content_path: Some("/tmp/test.dsk".into()),
             system: Some("msx2".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -1502,6 +1529,7 @@ fn pc98_display_selects_visible_mame_launch() {
         content_path2: None,
         system: Some("pc98".into()),
         pc98_backend: None,
+        psx_backend: None,
         indirect_media_approval: None,
         name: None,
         display: Some(true),
@@ -1531,6 +1559,7 @@ fn launch_plan_for_nds_uses_desmume_adapter_and_mcp_launcher() {
             content_path: Some("/tmp/game.nds".into()),
             system: None,
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -1591,6 +1620,7 @@ fn launch_plan_for_psp_uses_ppsspp_adapter_and_mcp_launcher() {
             content_path: Some("/tmp/game.cso".into()),
             system: None,
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -2074,6 +2104,7 @@ fn launch_recovers_retired_generation_and_cleans_exact_bridge_orphan() {
             content_path2: None,
             system: Some("snes".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
             name: Some("after-orphan".into()),
             display: None,
@@ -2107,6 +2138,7 @@ fn launch_recovers_retired_generation_and_cleans_exact_bridge_orphan() {
             content_path2: None,
             system: Some("snes".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
             name: Some("after-unverifiable-lease".into()),
             display: None,
@@ -2133,6 +2165,7 @@ fn launch_recovers_retired_generation_and_cleans_exact_bridge_orphan() {
             content_path2: None,
             system: Some("snes".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
             name: Some("after-retired-generation".into()),
             display: None,
@@ -2186,6 +2219,7 @@ fn successful_launch_publishes_generation_and_refuses_duplicate() {
         content_path2: None,
         system: Some("snes".into()),
         pc98_backend: None,
+        psx_backend: None,
         indirect_media_approval: None,
         name: Some("capsule-test".into()),
         display: None,
@@ -2330,6 +2364,7 @@ fn controlled_launch_publishes_only_after_a_frozen_ready_boundary() {
             content_path2: None,
             system: Some("snes".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
             name: Some("controlled-launch-test".into()),
             display: None,
@@ -2381,6 +2416,7 @@ fn controlled_launch_fails_closed_and_terminates_a_running_entry() {
             content_path2: None,
             system: Some("snes".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
             name: Some("controlled-launch-failure-test".into()),
             display: None,
@@ -2500,6 +2536,7 @@ fn dolphin_audio_failure_terminates_only_the_owned_launch_and_aborts_admission()
             content_path2: None,
             system: Some("gamecube".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
             name: Some("audio-failure-test".into()),
             display: Some(false),
@@ -2656,6 +2693,7 @@ fn launch_refuses_missing_content_before_binary_resolution() {
             content_path2: None,
             system: Some("snes".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
             name: None,
             display: None,
@@ -2693,6 +2731,7 @@ fn launch_refuses_descriptor_members_without_plan_approval() {
             content_path2: None,
             system: Some("saturn".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
             name: None,
             display: None,
@@ -2726,6 +2765,7 @@ fn launch_rejects_sound_for_unsupported_adapter_before_binary_resolution() {
             content_path2: None,
             system: Some("snes".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
             name: None,
             display: None,
@@ -2760,6 +2800,7 @@ fn launch_rejects_pc98_sound_board_for_other_systems_before_binary_resolution() 
             content_path2: None,
             system: Some("snes".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
             name: None,
             display: None,
@@ -2815,6 +2856,7 @@ fn controlled_launch_refuses_an_unsupported_adapter_before_spawn() {
             content_path2: None,
             system: Some("n64".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
             name: None,
             display: None,
@@ -2849,6 +2891,7 @@ fn repeatable_profile_refuses_an_unadvertised_system_before_spawn() {
             content_path2: None,
             system: Some("nes".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
             name: None,
             display: None,
@@ -2902,6 +2945,7 @@ fn launch_refuses_missing_adapter_binary_with_precondition() {
             content_path2: None,
             system: Some("dc".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
             name: None,
             display: None,
@@ -2979,6 +3023,7 @@ fn launch_refuses_missing_pc98_bridge_with_precondition() {
             content_path2: None,
             system: Some("pc98".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
             name: None,
             display: None,
@@ -3032,6 +3077,7 @@ fn launch_refuses_occupied_port_before_spawn() {
             content_path2: None,
             system: Some("md".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
             name: None,
             display: None,
@@ -3109,6 +3155,7 @@ fn launch_refuses_when_this_session_already_connected() {
             content_path2: None,
             system: Some("pc98".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
             name: Some("dup-B".into()),
             display: None,
@@ -3160,6 +3207,7 @@ fn pc98_backend_defaults_to_mame_even_when_hdi_geometry_recommends_np2kai() {
             content_path: Some(hdi.display().to_string()),
             system: Some("pc98".into()),
             pc98_backend: None,
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -3183,6 +3231,7 @@ fn explicit_np2kai_selection_changes_only_the_pc98_backend() {
             content_path: Some(hdi.display().to_string()),
             system: Some("pc98".into()),
             pc98_backend: Some(Pc98BackendArgs::Np2kai),
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -3199,6 +3248,7 @@ fn explicit_np2kai_selection_changes_only_the_pc98_backend() {
             content_path: Some(hdi.display().to_string()),
             system: Some("snes".into()),
             pc98_backend: Some(Pc98BackendArgs::Np2kai),
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -3220,6 +3270,7 @@ fn explicit_np2kai_selection_rejects_non_hdi_media_during_planning() {
             content_path: Some(hdm.display().to_string()),
             system: Some("pc98".into()),
             pc98_backend: Some(Pc98BackendArgs::Np2kai),
+            psx_backend: None,
             indirect_media_approval: None,
         },
     );
@@ -3232,4 +3283,107 @@ fn explicit_np2kai_selection_rejects_non_hdi_media_during_planning() {
         .any(|blocker| blocker
             .as_str()
             .is_some_and(|message| message.contains(".hdi"))));
+}
+
+#[test]
+fn psx_backend_routes_only_an_explicit_psoxide_selection() {
+    assert_eq!(
+        adapter_for_system_and_backend("psx", None, None),
+        ("mednafen", Some("psx"))
+    );
+    assert_eq!(
+        adapter_for_system_and_backend("psx", None, Some(PsxBackendArgs::Mednafen)),
+        ("mednafen", Some("psx"))
+    );
+    assert_eq!(
+        adapter_for_system_and_backend("psx", None, Some(PsxBackendArgs::Psoxide)),
+        ("psoxide", None)
+    );
+    // The PS1 selector never changes another system's adapter.
+    assert_eq!(
+        adapter_for_system_and_backend("saturn", None, Some(PsxBackendArgs::Psoxide)),
+        ("mednafen", Some("ss"))
+    );
+}
+
+#[test]
+fn psx_backend_defaults_to_mednafen_and_psoxide_plans_a_frozen_headless_launch() {
+    let dir = tempfile::tempdir().unwrap();
+    let exe = dir.path().join("game-pong.exe");
+    std::fs::write(&exe, b"PS-X EXE").unwrap();
+    let default = make_launch_plan(
+        Some(47824),
+        &LaunchPlanArgs {
+            content_path: Some(exe.display().to_string()),
+            system: Some("psx".into()),
+            pc98_backend: None,
+            psx_backend: None,
+            indirect_media_approval: None,
+        },
+    );
+    assert_eq!(default["adapter"], "mednafen");
+
+    let plan = make_launch_plan(
+        Some(47824),
+        &LaunchPlanArgs {
+            content_path: Some(exe.display().to_string()),
+            system: Some("ps1".into()),
+            pc98_backend: None,
+            psx_backend: Some(PsxBackendArgs::Psoxide),
+            indirect_media_approval: None,
+        },
+    );
+    assert_eq!(plan["adapter"], "psoxide");
+    assert_eq!(plan["system"], "psx");
+    assert_eq!(plan["preferred_launcher"]["args"]["psx_backend"], "psoxide");
+    assert_eq!(plan["preferred_launcher"]["args"]["start_frozen"], true);
+    assert!(plan["preferred_launcher"]["args"].get("sound").is_none());
+    assert!(plan["preconditions"]["bios_required"].is_null());
+    assert_eq!(plan["start_frozen_contract"]["supported"], true);
+    assert_eq!(
+        plan["start_frozen_contract"]["boundary"],
+        "pre_first_instruction"
+    );
+    assert!(plan["preconditions"]["adapter_binary"]["source"]
+        .as_str()
+        .unwrap()
+        .contains("EMUCAP_PSOXIDE_BIN"));
+}
+
+#[test]
+fn psoxide_planning_rejects_foreign_selection_and_unbootable_media() {
+    let dir = tempfile::tempdir().unwrap();
+    let chd = dir.path().join("disc.chd");
+    std::fs::write(&chd, b"chd").unwrap();
+    let plan = make_launch_plan(
+        Some(47825),
+        &LaunchPlanArgs {
+            content_path: Some(chd.display().to_string()),
+            system: Some("psx".into()),
+            pc98_backend: None,
+            psx_backend: Some(PsxBackendArgs::Psoxide),
+            indirect_media_approval: None,
+        },
+    );
+    assert_eq!(plan["ready_to_launch"], false);
+    assert!(plan["launch_blockers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|blocker| blocker
+            .as_str()
+            .is_some_and(|message| message.contains(".exe"))));
+
+    let rejected = make_launch_plan(
+        Some(47825),
+        &LaunchPlanArgs {
+            content_path: Some(chd.display().to_string()),
+            system: Some("saturn".into()),
+            pc98_backend: None,
+            psx_backend: Some(PsxBackendArgs::Psoxide),
+            indirect_media_approval: None,
+        },
+    );
+    assert_eq!(rejected["ready_to_launch"], false);
+    assert_eq!(rejected["reason"], "psx_backend is supported only for PS1");
 }

@@ -68,12 +68,15 @@ pub(super) fn adapter_for_system(system: &str) -> (&'static str, Option<&'static
     }
 }
 
-pub(super) fn adapter_for_system_and_pc98_backend(
+pub(super) fn adapter_for_system_and_backend(
     system: &str,
-    backend: Option<crate::args::Pc98BackendArgs>,
+    pc98_backend: Option<crate::args::Pc98BackendArgs>,
+    psx_backend: Option<crate::args::PsxBackendArgs>,
 ) -> (&'static str, Option<&'static str>) {
-    if system == "pc98" && backend == Some(crate::args::Pc98BackendArgs::Np2kai) {
+    if system == "pc98" && pc98_backend == Some(crate::args::Pc98BackendArgs::Np2kai) {
         ("np2kai", None)
+    } else if system == "psx" && psx_backend == Some(crate::args::PsxBackendArgs::Psoxide) {
+        ("psoxide", None)
     } else {
         adapter_for_system(system)
     }

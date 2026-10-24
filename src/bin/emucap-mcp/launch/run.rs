@@ -154,7 +154,14 @@ pub(crate) fn make_launch(
             "system": system,
         });
     }
-    let (adapter, module) = adapter_for_system_and_pc98_backend(system, a.pc98_backend);
+    if a.psx_backend.is_some() && system != "psx" {
+        return serde_json::json!({
+            "launched": false,
+            "reason": "psx_backend is supported only for PS1",
+            "system": system,
+        });
+    }
+    let (adapter, module) = adapter_for_system_and_backend(system, a.pc98_backend, a.psx_backend);
     if adapter == "np2kai" && (a.display == Some(true) || a.content_path2.is_some()) {
         return serde_json::json!({
             "launched": false,
@@ -185,6 +192,7 @@ pub(crate) fn make_launch(
         && adapter != "mednafen"
         && adapter != "np2kai"
         && adapter != "xemu"
+        && adapter != "psoxide"
     {
         return serde_json::json!({
             "launched": false,
@@ -465,6 +473,7 @@ pub(crate) fn make_launch(
         }
         "desmume_nds" => launch_desmume_nds(port, producer_key, runtime, effective_args),
         "ppsspp" => launch_ppsspp(port, producer_key, runtime, effective_args),
+        "psoxide" => launch_psoxide(port, producer_key, runtime, effective_args),
         "pcsx2" => launch_pcsx2(port, producer_key, runtime, effective_args),
         "dolphin" => launch_dolphin(port, producer_key, runtime, system, effective_args),
         "xemu" => super::xemu::launch_xemu(port, producer_key, runtime, effective_args),
@@ -829,6 +838,63 @@ pub(super) fn launch_mupen64plus(
             "host_build": host_build,
             "log": log.display().to_string(),
             "isolation": "Mupen64Plus uses an emucap-owned launch-generation configuration and does not read or change the user's emulator settings.",
+            "next_action": "launch returns after the adapter connects",
+        }),
+        Err(error) => serde_json::json!({ "launched": false, "error": error.to_string() }),
+    }
+}
+
+/// PSoXide leg of `make_launch`: spawn the in-process PS1 producer. It connects back to this
+/// listener with the launch-bound front key; there is no bridge process.
+pub(super) fn launch_psoxide(
+    port: u16,
+    token: Option<&str>,
+    runtime: RuntimeEnv<'_>,
+    a: &LaunchArgs,
+) -> serde_json::Value {
+    let Some(root) = find_repo_root() else {
+        return serde_json::json!({ "launched": false, "error": "emucap repo root not found; set EMUCAP_REPO_ROOT" });
+    };
+    if a.display == Some(true) {
+        return serde_json::json!({
+            "launched": false,
+            "reason": "the PSoXide backend is headless only",
+            "adapter": "psoxide",
+        });
+    }
+    let Some(binary) = psoxide_launch::resolve_binary(&root) else {
+        return serde_json::json!({
+            "launched": false,
+            "reason": "psoxide-emucap-host binary not found",
+            "next_action": "build psoxide-emucap-host (cargo build --release -p psoxide-emucap) and set EMUCAP_PSOXIDE_BIN",
+        });
+    };
+    let content = Path::new(&a.content_path);
+    let log = match adapter_log_path(port, runtime, "psoxide.log") {
+        Ok(path) => path,
+        Err(error) => return serde_json::json!({"launched": false, "error": error.to_string()}),
+    };
+    let launch = psoxide_launch::Launch {
+        binary: &binary,
+        content,
+        log_path: &log,
+        port,
+        name: a.name.as_deref(),
+        session_token: token,
+        runtime: Some(runtime),
+        start_frozen: a.start_frozen,
+    };
+    match psoxide_launch::launch(&launch) {
+        Ok(launched) => serde_json::json!({
+            "launched": true,
+            "adapter": "psoxide",
+            "pid": launched.pid,
+            "display": false,
+            "port": port,
+            "binary": binary.display().to_string(),
+            "emucap_home": launched.runtime_home.display().to_string(),
+            "log": log.display().to_string(),
+            "isolation": "psoxide-emucap-host runs headless in an emucap-owned launch-generation directory and does not read or change the PSoXide GUI configuration or library.",
             "next_action": "launch returns after the adapter connects",
         }),
         Err(error) => serde_json::json!({ "launched": false, "error": error.to_string() }),
