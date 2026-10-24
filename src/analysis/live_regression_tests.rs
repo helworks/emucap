@@ -12,6 +12,7 @@ pub(crate) struct DetReplayLink {
     state_restore: Option<serde_json::Value>,
     read_memory_calls: usize,
     read_memory_fail_on: Option<usize>,
+    rom_info: Option<serde_json::Value>,
 }
 impl DetReplayLink {
     pub(crate) fn new(methods: &[&str]) -> Self {
@@ -33,7 +34,14 @@ impl DetReplayLink {
             state_restore: None,
             read_memory_calls: 0,
             read_memory_fail_on: None,
+            rom_info: None,
         }
+    }
+    /// Advertise `get_rom_info` and answer it with this raw adapter result.
+    fn rom_info(mut self, info: serde_json::Value) -> Self {
+        self.caps.methods.push("get_rom_info".into());
+        self.rom_info = Some(info);
+        self
     }
     pub(crate) fn obs(mut self, hexes: &[&'static str]) -> Self {
         self.obs_queue = hexes.iter().copied().collect();
@@ -73,6 +81,10 @@ impl EmulatorLink for DetReplayLink {
                 }
                 Ok(s)
             }
+            "get_rom_info" => self
+                .rom_info
+                .clone()
+                .ok_or_else(|| LinkError::Protocol("get_rom_info was not configured".into())),
             "poll_events" => Ok(self
                 .poll_events
                 .pop_front()
@@ -171,6 +183,154 @@ fn rom_identity_hash_comparison_is_case_insensitive() {
         "08695F636F9FDF6E934E7AAE8B7BBBE4E67E100E",
         "18695f636f9fdf6e934e7aae8b7bbbe4e67e100e"
     ));
+}
+
+const CUE_FILE_SHA1: &str = "1111111111111111111111111111111111111111";
+
+fn cue_graph_identity() -> crate::content_identity::ContentIdentity {
+    use crate::content_identity::*;
+    ContentIdentity {
+        scope: ContentIdentityScope::CueGraph,
+        algorithm: ContentHashAlgorithm::Sha256,
+        digest: "ab".repeat(32),
+        size: 4096,
+        members: vec![ContentMemberIdentity {
+            declared_name: "disc.cue".into(),
+            size: 64,
+            digest: "cd".repeat(32),
+        }],
+    }
+}
+
+/// A disc adapter's raw `get_rom_info`: its own hash covers only the descriptor file.
+fn cue_rom_info() -> serde_json::Value {
+    serde_json::json!({"path": "/discs/disc.cue", "sha1": CUE_FILE_SHA1, "size": 64})
+}
+
+fn memory_observe() -> ObserveSpec {
+    ObserveSpec::Memory {
+        memory_type: "w".into(),
+        address: 0,
+        length: 1,
+    }
+}
+
+fn det_link_with_rom(info: serde_json::Value) -> DetReplayLink {
+    DetReplayLink::new(&[
+        "reset",
+        "pause",
+        "set_input",
+        "step",
+        "read_memory",
+        "clear_all_breakpoints",
+    ])
+    .obs(&["aa", "aa"])
+    .rom_info(info)
+}
+
+fn verify_with(
+    link: &mut DetReplayLink,
+    dir: &Path,
+    case: &regression::Case,
+    resolve: &ContentIdentityResolver<'_>,
+) -> DetResult {
+    let prepared = prepare_case(dir, case).unwrap();
+    verify_determinism_prepared_core(
+        link,
+        &prepared,
+        &memory_observe(),
+        2,
+        regression_deadline(),
+        resolve,
+    )
+}
+
+#[test]
+fn determinism_accepts_the_tracking_id_get_rom_info_reports_for_composite_media() {
+    let (_t, dir, mut case) = det_input_case(None);
+    let identity = cue_graph_identity();
+    let bound = identity.clone();
+    let resolve = move |_: &serde_json::Value| Ok(Some(bound.clone()));
+    // The identifier Control get_rom_info reports for this launch, which agents record.
+    case.rom.sha1 = crate::content_identity::tracking_rom_id(&cue_rom_info(), Some(&identity))
+        .expect("composite identity yields a tracking id");
+    assert_eq!(case.rom.sha1, identity.tracking_id());
+    let mut link = det_link_with_rom(cue_rom_info());
+    let result = verify_with(&mut link, &dir, &case, &resolve);
+    assert_eq!(result.outcome, DetOutcome::Reproducible);
+}
+
+#[test]
+fn determinism_rejects_a_descriptor_only_hash_for_composite_media() {
+    let (_t, dir, mut case) = det_input_case(None);
+    let identity = cue_graph_identity();
+    let resolve = move |_: &serde_json::Value| Ok(Some(identity.clone()));
+    case.rom.sha1 = CUE_FILE_SHA1.into();
+    let mut link = det_link_with_rom(cue_rom_info());
+    let result = verify_with(&mut link, &dir, &case, &resolve);
+    assert_eq!(
+        result.outcome,
+        DetOutcome::MeasurementInvalid("rom_mismatch".into())
+    );
+}
+
+#[test]
+fn determinism_reports_an_unresolvable_content_identity_as_invalid() {
+    let (_t, dir, mut case) = det_input_case(None);
+    case.rom.sha1 = CUE_FILE_SHA1.into();
+    let resolve = |_: &serde_json::Value| {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "unmanaged descriptor",
+        ))
+    };
+    let mut link = det_link_with_rom(cue_rom_info());
+    let result = verify_with(&mut link, &dir, &case, &resolve);
+    assert!(
+        matches!(&result.outcome, DetOutcome::MeasurementInvalid(reason) if reason.starts_with("rom_identity_unavailable")),
+        "{:?}",
+        result.outcome
+    );
+    assert!(result.hashes.is_empty());
+}
+
+#[test]
+fn determinism_checks_an_adapter_reported_rom_sha1() {
+    // NP2kai/PCSX2 shape: the adapter publishes rom_sha1 itself and get_rom_info keeps it.
+    let info = serde_json::json!({"rom_sha1": "2222222222222222222222222222222222222222"});
+    let (_t, dir, mut case) = det_input_case(None);
+    case.rom.sha1 = "2222222222222222222222222222222222222222".into();
+    let mut link = det_link_with_rom(info.clone());
+    let result = verify_with(&mut link, &dir, &case, &unbound_content_identity);
+    assert_eq!(result.outcome, DetOutcome::Reproducible);
+
+    case.rom.sha1 = "3333333333333333333333333333333333333333".into();
+    let mut link = det_link_with_rom(info);
+    let result = verify_with(&mut link, &dir, &case, &unbound_content_identity);
+    assert_eq!(
+        result.outcome,
+        DetOutcome::MeasurementInvalid("rom_mismatch".into())
+    );
+}
+
+#[test]
+fn regression_uses_the_same_rom_identity_as_get_rom_info() {
+    let (_t, dir, mut case) = det_input_case(None);
+    let identity = cue_graph_identity();
+    let bound = identity.clone();
+    let resolve = move |_: &serde_json::Value| Ok(Some(bound.clone()));
+
+    case.rom.sha1 = identity.tracking_id();
+    let prepared = prepare_case(&dir, &case).unwrap();
+    let mut link = det_link_with_rom(cue_rom_info());
+    let verdict = run_prepared_case(&mut link, &prepared, regression_deadline(), &resolve);
+    assert_ne!(verdict, regression::Verdict::RomMismatch);
+
+    case.rom.sha1 = CUE_FILE_SHA1.into();
+    let prepared = prepare_case(&dir, &case).unwrap();
+    let mut link = det_link_with_rom(cue_rom_info());
+    let verdict = run_prepared_case(&mut link, &prepared, regression_deadline(), &resolve);
+    assert_eq!(verdict, regression::Verdict::RomMismatch);
 }
 
 #[test]
@@ -1124,7 +1284,12 @@ fn input_replay_deadline_runs_terminal_cleanup() {
     .with_delay_after_call(2, std::time::Duration::from_millis(250));
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(100);
 
-    let verdict = run_prepared_case(&mut link, &prepared, deadline);
+    let verdict = run_prepared_case(
+        &mut link,
+        &prepared,
+        deadline,
+        &super::unbound_content_identity,
+    );
     assert!(
         matches!(verdict, regression::Verdict::ReproError(ref error) if error.contains("regression operation exceeded")),
         "deadline must fail the replay: {verdict:?}"

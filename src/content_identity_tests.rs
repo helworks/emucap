@@ -330,3 +330,32 @@ fn presentation_only_descriptor_edits_keep_authority_but_change_byte_identity() 
     assert_eq!(unchanged, approval);
     assert_ne!(after.digest, before.digest);
 }
+
+#[test]
+fn tracking_rom_id_prefers_bound_composite_identity_over_adapter_hashes() {
+    let identity = ContentIdentity {
+        scope: ContentIdentityScope::CueGraph,
+        algorithm: ContentHashAlgorithm::Sha256,
+        digest: "ab".repeat(32),
+        size: 1,
+        members: vec![],
+    };
+    let cue_info = serde_json::json!({"path": "disc.cue", "sha1": "cuefile", "rom_sha1": "layout"});
+    assert_eq!(
+        tracking_rom_id(&cue_info, Some(&identity)),
+        Some(identity.tracking_id())
+    );
+    // Without a bound graph: adapter rom_sha1, then content_md5, then sha1.
+    assert_eq!(tracking_rom_id(&cue_info, None), Some("layout".to_string()));
+    let md5 = serde_json::json!({"content_md5": "md5", "sha1": "sha1"});
+    assert_eq!(tracking_rom_id(&md5, None), Some("md5".to_string()));
+    let sha1 = serde_json::json!({"content_md5": "", "sha1": "sha1"});
+    assert_eq!(tracking_rom_id(&sha1, None), Some("sha1".to_string()));
+    for unusable in [
+        serde_json::json!({"sha1": "skipped:too_large"}),
+        serde_json::json!({"rom_sha1": null, "sha1": "pending"}),
+        serde_json::json!({}),
+    ] {
+        assert_eq!(tracking_rom_id(&unusable, None), None, "{unusable}");
+    }
+}

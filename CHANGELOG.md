@@ -8,6 +8,9 @@ Release compatibility is defined in [COMPATIBILITY.md](COMPATIBILITY.md).
 - Boot a PPSSPP PBP/ELF in place from a `PSP/GAME/<NAME>/` directory. PPSSPP resolves such content
   on the memory stick, so the launcher installs the game directory into the generation's isolated
   memory stick and boots that copy.
+- Verify `regression_run` and `verify_determinism` cases against the same normalized identifier
+  `get_rom_info.rom_sha1` reports. Composite media (CUE and other descriptors) now match their
+  launch-bound content identity instead of the adapter's descriptor-file hash.
 
 ## 1.1.0
 

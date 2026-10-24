@@ -455,7 +455,14 @@ pub fn verify_determinism_core(
         Ok(prepared) => prepared,
         Err(verdict) => return determinism_preflight_failure(verdict, replays),
     };
-    verify_determinism_prepared_core(link, &prepared, observe, replays, regression_deadline())
+    verify_determinism_prepared_core(
+        link,
+        &prepared,
+        observe,
+        replays,
+        regression_deadline(),
+        &unbound_content_identity,
+    )
 }
 
 pub fn determinism_preflight_failure(verdict: regression::Verdict, replays: u32) -> DetResult {
@@ -483,6 +490,7 @@ pub fn verify_determinism_prepared_core(
     observe: &crate::track::observe::ObserveSpec,
     replays: u32,
     deadline: Instant,
+    resolve: &ContentIdentityResolver<'_>,
 ) -> DetResult {
     debug_assert!(
         replays >= 2,
@@ -508,28 +516,20 @@ pub fn verify_determinism_prepared_core(
             hashes: vec![],
         };
     }
-    let case = &prepared.case;
     // rom 대조(get_rom_info 가용 시). 불일치는 측정 무효.
     if has_method(link, "get_rom_info") {
-        if let Ok(info) =
-            call_before_deadline(link, deadline, "get_rom_info", serde_json::json!({}))
-        {
-            // Mednafen은 content_md5를 우선하고(run_start에 그 값을 넘김), Mesen/PC-98은 sha1을 쓴다.
-            // 저장된 키와 같은 우선순위로 대조한다.
-            let h = info
-                .get("content_md5")
-                .and_then(|s| s.as_str())
-                .filter(|s| !s.is_empty())
-                .or_else(|| info.get("sha1").and_then(|s| s.as_str()))
-                .unwrap_or("");
-            if !h.is_empty() && h != "skipped:too_large" && !rom_hash_matches(h, &case.rom.sha1) {
-                return DetResult {
-                    outcome: DetOutcome::MeasurementInvalid("rom_mismatch".into()),
-                    observe_kind: String::new(),
-                    replays,
-                    hashes: vec![],
-                };
-            }
+        let invalid = match check_rom_identity(link, deadline, &prepared.case.rom.sha1, resolve) {
+            RomCheck::Passed => None,
+            RomCheck::Mismatch => Some("rom_mismatch".to_string()),
+            RomCheck::Unavailable(reason) => Some(format!("rom_identity_unavailable: {reason}")),
+        };
+        if let Some(reason) = invalid {
+            return DetResult {
+                outcome: DetOutcome::MeasurementInvalid(reason),
+                observe_kind: String::new(),
+                replays,
+                hashes: vec![],
+            };
         }
     }
     let mut hashes = Vec::new();
@@ -568,6 +568,50 @@ fn rom_hash_matches(observed: &str, expected: &str) -> bool {
     observed.eq_ignore_ascii_case(expected)
 }
 
+/// Resolves the launch-bound composite content identity for a raw adapter `get_rom_info` result,
+/// the same lookup Control `get_rom_info` performs before normalizing `rom_sha1`.
+pub type ContentIdentityResolver<'a> = dyn Fn(&serde_json::Value) -> std::io::Result<Option<crate::content_identity::ContentIdentity>>
+    + 'a;
+
+/// Resolver for links without a managed launch binding: no composite identity is bound, so the
+/// adapter's own identity keys decide.
+pub fn unbound_content_identity(
+    _info: &serde_json::Value,
+) -> std::io::Result<Option<crate::content_identity::ContentIdentity>> {
+    Ok(None)
+}
+
+enum RomCheck {
+    Passed,
+    Mismatch,
+    Unavailable(String),
+}
+
+/// Compare a case's `rom.sha1` with the normalized Tracking identifier Control `get_rom_info`
+/// reports for the running content (`content_identity::tracking_rom_id`), so the value agents pass
+/// to `run_start` and record in cases is the one verified here. For composite media that is the
+/// launch-bound graph identity, never the adapter's descriptor-file hash. A failed `get_rom_info`
+/// call or an adapter without a usable identity yet skips the check, as before.
+fn check_rom_identity(
+    link: &mut dyn EmulatorLink,
+    deadline: Instant,
+    expected: &str,
+    resolve: &ContentIdentityResolver<'_>,
+) -> RomCheck {
+    let Ok(info) = call_before_deadline(link, deadline, "get_rom_info", serde_json::json!({}))
+    else {
+        return RomCheck::Passed;
+    };
+    let identity = match resolve(&info) {
+        Ok(identity) => identity,
+        Err(error) => return RomCheck::Unavailable(error.to_string()),
+    };
+    match crate::content_identity::tracking_rom_id(&info, identity.as_ref()) {
+        Some(observed) if !rom_hash_matches(&observed, expected) => RomCheck::Mismatch,
+        _ => RomCheck::Passed,
+    }
+}
+
 /// 한 케이스를 현재 link으로 재현·판정한다. savestate는 원자적 probe로, 읽기 검증은 evaluate가.
 pub fn run_one_case(
     link: &mut dyn EmulatorLink,
@@ -578,13 +622,19 @@ pub fn run_one_case(
         Ok(prepared) => prepared,
         Err(verdict) => return verdict,
     };
-    run_prepared_case(link, &prepared, regression_deadline())
+    run_prepared_case(
+        link,
+        &prepared,
+        regression_deadline(),
+        &unbound_content_identity,
+    )
 }
 
 pub fn run_prepared_case(
     link: &mut dyn EmulatorLink,
     prepared: &PreparedCase,
     deadline: Instant,
+    resolve: &ContentIdentityResolver<'_>,
 ) -> regression::Verdict {
     let case = &prepared.case;
     if let Err(e) = ensure_capabilities_loaded_before(link, deadline) {
@@ -597,19 +647,11 @@ pub fn run_prepared_case(
         .iter()
         .any(|m| m == "get_rom_info")
     {
-        if let Ok(info) =
-            call_before_deadline(link, deadline, "get_rom_info", serde_json::json!({}))
-        {
-            // Mednafen은 content_md5를 우선하고(run_start에 그 값을 넘김), Mesen/PC-98은 sha1을 쓴다.
-            // 저장된 키와 같은 우선순위로 대조한다.
-            let h = info
-                .get("content_md5")
-                .and_then(|s| s.as_str())
-                .filter(|s| !s.is_empty())
-                .or_else(|| info.get("sha1").and_then(|s| s.as_str()))
-                .unwrap_or("");
-            if !h.is_empty() && h != "skipped:too_large" && !rom_hash_matches(h, &case.rom.sha1) {
-                return regression::Verdict::RomMismatch;
+        match check_rom_identity(link, deadline, &case.rom.sha1, resolve) {
+            RomCheck::Passed => {}
+            RomCheck::Mismatch => return regression::Verdict::RomMismatch,
+            RomCheck::Unavailable(reason) => {
+                return regression::Verdict::Invalid(format!("rom identity unavailable: {reason}"))
             }
         }
     }

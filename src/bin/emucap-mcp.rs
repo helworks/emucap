@@ -922,10 +922,11 @@ impl Emucap {
             Err(error) => return link_error_result(error),
         };
         let rom_check_unsupported = !l.capabilities().methods.iter().any(|m| m == "get_rom_info");
+        let resolve = analysis_content_identity_resolver(&*l);
         let mut results = Vec::new();
         for planned_case in &planned {
             let verdict = match &planned_case.prepared {
-                Ok(prepared) => run_prepared_case(&mut *l, prepared, deadline),
+                Ok(prepared) => run_prepared_case(&mut *l, prepared, deadline, &resolve),
                 Err(verdict) => verdict.clone(),
             };
             results.push(regression::CaseResult {
@@ -981,8 +982,9 @@ impl Emucap {
                     Ok(value) => value,
                     Err(error) => return link_error_result(error),
                 };
+                let resolve = analysis_content_identity_resolver(&*l);
                 let r = verify_determinism_prepared_core(
-                    &mut *l, &prepared, &observe, replays, deadline,
+                    &mut *l, &prepared, &observe, replays, deadline, &resolve,
                 );
                 if let Err(error) = restore_analysis_execution(&mut *l, started_running) {
                     return link_error_result(error);
@@ -1005,6 +1007,17 @@ impl Emucap {
         });
         tool_output_result(ToolOutput::Json(body))
     }
+}
+
+/// The analysis ROM checks resolve the running content's identity exactly as `get_rom_info`
+/// does, so a case recorded with `get_rom_info.rom_sha1` verifies against the same value.
+fn analysis_content_identity_resolver(
+    link: &dyn EmulatorLink,
+) -> impl Fn(&serde_json::Value) -> std::io::Result<Option<emucap::content_identity::ContentIdentity>>
+{
+    let endpoint_port = link.endpoint_port();
+    let live_launch_id = link.capabilities().identity.launch_id.clone();
+    move |info| content_identity_for_rom_info(info, endpoint_port, live_launch_id.as_deref())
 }
 
 // Analysis may replay from reset or a snapshot; preserve execution mode, not guest state.

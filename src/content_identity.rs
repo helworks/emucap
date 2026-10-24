@@ -103,6 +103,58 @@ impl ContentIdentity {
     }
 }
 
+/// Normalize a raw adapter `get_rom_info` result in place, preserving the legacy `rom_sha1` slot as
+/// the opaque Tracking identifier. Exact composite content identity takes precedence over emulator
+/// layout IDs and entry-file-only hashes. Control `get_rom_info` and the live analysis ROM checks
+/// both use this, so the identifier agents record is the one cases are verified against.
+pub fn normalize_rom_sha1(
+    value: &mut serde_json::Value,
+    content_identity: Option<&ContentIdentity>,
+) {
+    fn valid(value: Option<&str>) -> Option<&str> {
+        value.filter(|value| !value.is_empty() && *value != "skipped:too_large")
+    }
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    if let Some(identity) = content_identity {
+        object.insert(
+            "content_identity".into(),
+            serde_json::to_value(identity).expect("content identity is serializable"),
+        );
+        object.insert(
+            "content_identity_binding".into(),
+            serde_json::json!("prelaunch"),
+        );
+        object.insert("rom_sha1".into(), serde_json::json!(identity.tracking_id()));
+        return;
+    }
+    if object.contains_key("rom_sha1") {
+        return;
+    }
+    let canonical = valid(object.get("content_md5").and_then(|value| value.as_str()))
+        .or_else(|| valid(object.get("sha1").and_then(|value| value.as_str())))
+        .map(String::from);
+    if let Some(canonical) = canonical {
+        object.insert("rom_sha1".into(), serde_json::json!(canonical));
+    }
+}
+
+/// The normalized Tracking identifier `normalize_rom_sha1` reports for a raw adapter
+/// `get_rom_info` result, or `None` when the adapter reports no usable identity (yet).
+pub fn tracking_rom_id(
+    info: &serde_json::Value,
+    content_identity: Option<&ContentIdentity>,
+) -> Option<String> {
+    let mut normalized = info.clone();
+    normalize_rom_sha1(&mut normalized, content_identity);
+    normalized
+        .get("rom_sha1")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty() && *value != "skipped:too_large")
+        .map(String::from)
+}
+
 /// Treat host-specific spellings as the same content path only when they resolve to the same
 /// existing filesystem object. An identical spelling remains comparable after the file has been
 /// staged or removed because managed composite identity can outlive its entry path.
