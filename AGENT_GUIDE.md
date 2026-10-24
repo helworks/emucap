@@ -96,6 +96,7 @@ plugins instead. For NP2kai, also set `EMUCAP_NP2KAI_BUILD_INFO` to the packaged
 | PCSX2 | `EMUCAP_PCSX2_BIN` |
 | DeSmuME | `EMUCAP_DESMUME_BIN` |
 | xemu | `EMUCAP_XEMU_BIN` |
+| PSoXide | `EMUCAP_PSOXIDE_BIN` |
 
 For a packaged GUI executable, use `EMUCAP_PPSSPP_GUI_BIN` or `EMUCAP_DOLPHIN_GUI_BIN`;
 Dolphin's headless executable can be selected with `EMUCAP_DOLPHIN_HEADLESS_BIN`.
@@ -461,6 +462,19 @@ The emucap patches provide native control while the guest is halted.
   game XISO smoke test reached game-visible menus, consumed confirm and directional input, and
   produced audible output with `sound:true`; this is not a broad game-compatibility claim.
   → `adapters/xemu/README.md`
+- **PSoXide (PS1, `psx_backend: "psoxide"`)** — build `psoxide-emucap-host` with
+  `cargo build --release -p psoxide-emucap` in a PSoXide-emulator checkout and point
+  `EMUCAP_PSOXIDE_BIN` at it. Mednafen stays the default PS1 backend; PSoXide is selected only
+  explicitly. The host is headless, needs no BIOS (HLE kernel), and boots `.cue`/`.ccd`/`.bin`/`.iso`
+  discs or side-loaded PSX `.exe` files. It speaks the control wire from inside the emulator process
+  and runs every request on its emulator thread between frames, so reads while running observe a frame
+  boundary. It supports controlled frozen start; route-tick frame, controller-poll, and instruction
+  stepping; R3000A state; side-effect-free RAM, scratchpad, BIOS, VRAM, and CPU-map reads with a frozen
+  memory batch; RAM/scratchpad writes; two-port input holds and pulses; PNG capture; PSoXide save states
+  (BIOS and disc come from the running machine); power-on reset; exec breakpoints; and events. The
+  `psoxide_input_tape`, `psoxide_hashes`, and `psoxide_run_to_poll` wire extensions replay PSoXide
+  input tapes and return `launch --dump-hash` VRAM/display hashes; they are not yet routed through
+  the public tool surface.
 
 ## Known issues
 

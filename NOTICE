@@ -63,6 +63,14 @@ PPSSPP
   armips, udis86, cityhash, sha1, sfmt, cpu_features, rapidjson, pugixml, gason, sol/lua,
   imgui, portable-file-dialogs, discord-rpc, miniupnp, rcheevos, OpenXR-SDK, libadrenotools.
 
+PSoXide
+  Upstream: https://github.com/EBonura/PSoXide-emulator
+  License:  GPL-2.0-or-later
+  Used by:  emucap launches the separately built psoxide-emucap-host producer
+            (crate psoxide-emucap in the PSoXide tree, which speaks this wire
+            in-process; PS1 via psx_backend=psoxide). No PSoXide code is compiled
+            into emucap, and emucap does not ship PSoXide binaries.
+
 PCSX2
   Upstream: https://github.com/PCSX2/pcsx2
   Pinned source: v2.6.3 (bc8151d2a46d4aba039ea5580afbfc7bfcf6d730)

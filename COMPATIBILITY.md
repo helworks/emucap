@@ -35,6 +35,11 @@ versions may advance within 1.x, requiring an adapter rebuild. Older incompatibl
 hosts are rejected explicitly. Adapter wire protocols and the internal Rust library
 are implementation interfaces, outside the consumer compatibility promise.
 
+Backend selectors such as `pc98_backend` and `psx_backend` never change a default silently.
+PS1 launches Mednafen unless `psx_backend: "psoxide"` is passed; the PSoXide producer is a
+separately built, in-process host whose wire extensions (`psoxide_*`) are not part of the public
+tool surface.
+
 ## Stored data
 
 Emucap-owned records use their declared schema versions. Existing supported versions

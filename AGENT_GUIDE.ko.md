@@ -87,6 +87,7 @@ NP2kai는 `EMUCAP_NP2KAI_BUILD_INFO`에도 패키지의 `emucap-np2kai-build.jso
 | PCSX2 | `EMUCAP_PCSX2_BIN` |
 | DeSmuME | `EMUCAP_DESMUME_BIN` |
 | xemu | `EMUCAP_XEMU_BIN` |
+| PSoXide | `EMUCAP_PSOXIDE_BIN` |
 
 패키지에 포함된 GUI 실행 파일은 `EMUCAP_PPSSPP_GUI_BIN` 또는 `EMUCAP_DOLPHIN_GUI_BIN`으로
 지정한다. Dolphin headless 실행 파일은 `EMUCAP_DOLPHIN_HEADLESS_BIN`으로 지정할 수 있다.
@@ -380,6 +381,12 @@ emucap 패치는 guest가 정지한 상태에서도 네이티브 제어 요청�
   대표 game XISO smoke에서 실제 게임 메뉴 진입, confirm·방향 입력 소비와 `sound:true`의 가청
   출력을 확인했다. 이는 전체 게임 호환성을 보장한다는 뜻은 아니다.
   → `adapters/xemu/README.md`
+- **PSoXide (PS1, `psx_backend: "psoxide"`)** — PSoXide-emulator 체크아웃에서
+  `cargo build --release -p psoxide-emucap`으로 `psoxide-emucap-host`를 빌드하고
+  `EMUCAP_PSOXIDE_BIN`으로 지정한다. PS1 기본 백엔드는 계속 Mednafen이며 PSoXide는 명시적으로만
+  선택된다. 헤드리스 전용이고 BIOS가 필요 없으며(HLE 커널) `.cue`/`.ccd`/`.bin`/`.iso` 디스크와 PSX `.exe`를
+  부팅한다. 프레임(route tick)·컨트롤러 폴·명령 단위 스텝, 프로즌 시작, 메모리 배치, 2포트 입력, PNG 캡처,
+  PSoXide 세이브스테이트, 리셋, exec 브레이크포인트, 이벤트를 지원한다.
 
 ## 더 보기
 
