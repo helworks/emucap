@@ -487,6 +487,8 @@ pub(crate) fn runtime_paths(port: Option<u16>) -> serde_json::Value {
                 "build": "cargo build --release -p psoxide-emucap (in a PSoXide-emulator checkout)",
                 "adapter_binary": abs_path_json(&root, &["target", "release", if cfg!(windows) { "psoxide-emucap-host.exe" } else { "psoxide-emucap-host" }]),
                 "binary_env": "EMUCAP_PSOXIDE_BIN",
+                "gui_binary": abs_path_json(&root, &["target", "release", if cfg!(windows) { "psoxide-emulator.exe" } else { "psoxide-emulator" }]),
+                "gui_binary_env": "EMUCAP_PSOXIDE_GUI_BIN",
             },
             "pcsx2": {
                 "build": abs_path_json(&root, &["adapters", "pcsx2", "build.sh"]),

@@ -162,6 +162,15 @@ pub(crate) fn make_launch(
         });
     }
     let (adapter, module) = adapter_for_system_and_backend(system, a.pc98_backend, a.psx_backend);
+    if a.play_tape.is_some() && adapter != "psoxide" {
+        return serde_json::json!({
+            "launched": false,
+            "error_code": "bad_params",
+            "reason": "play_tape is supported only by the PSoXide backend",
+            "system": system,
+            "adapter": adapter,
+        });
+    }
     if adapter == "np2kai" && (a.display == Some(true) || a.content_path2.is_some()) {
         return serde_json::json!({
             "launched": false,
@@ -855,18 +864,34 @@ pub(super) fn launch_psoxide(
     let Some(root) = find_repo_root() else {
         return serde_json::json!({ "launched": false, "error": "emucap repo root not found; set EMUCAP_REPO_ROOT" });
     };
-    if a.display == Some(true) {
+    let display = a.display == Some(true);
+    let play_tape = a.play_tape.as_deref().map(Path::new);
+    if let Err(error) = psoxide_launch::validate_play_tape(display, play_tape) {
         return serde_json::json!({
             "launched": false,
-            "reason": "the PSoXide backend is headless only",
+            "error_code": "bad_params",
+            "reason": error.to_string(),
             "adapter": "psoxide",
         });
     }
-    let Some(binary) = psoxide_launch::resolve_binary(&root) else {
+    let (resolved, missing_binary, build_hint) = if display {
+        (
+            psoxide_launch::resolve_gui_binary(&root),
+            "psoxide-emulator binary not found",
+            "build psoxide-emulator with --features emucap (cargo build --release -p psoxide-emulator --features emucap) and set EMUCAP_PSOXIDE_GUI_BIN",
+        )
+    } else {
+        (
+            psoxide_launch::resolve_binary(&root),
+            "psoxide-emucap-host binary not found",
+            "build psoxide-emucap-host (cargo build --release -p psoxide-emucap) and set EMUCAP_PSOXIDE_BIN",
+        )
+    };
+    let Some(binary) = resolved else {
         return serde_json::json!({
             "launched": false,
-            "reason": "psoxide-emucap-host binary not found",
-            "next_action": "build psoxide-emucap-host (cargo build --release -p psoxide-emucap) and set EMUCAP_PSOXIDE_BIN",
+            "reason": missing_binary,
+            "next_action": build_hint,
         });
     };
     let content = Path::new(&a.content_path);
@@ -883,18 +908,24 @@ pub(super) fn launch_psoxide(
         session_token: token,
         runtime: Some(runtime),
         start_frozen: a.start_frozen,
+        display,
+        play_tape,
     };
     match psoxide_launch::launch(&launch) {
         Ok(launched) => serde_json::json!({
             "launched": true,
             "adapter": "psoxide",
             "pid": launched.pid,
-            "display": false,
+            "display": display,
             "port": port,
             "binary": binary.display().to_string(),
             "emucap_home": launched.runtime_home.display().to_string(),
             "log": log.display().to_string(),
-            "isolation": "psoxide-emucap-host runs headless in an emucap-owned launch-generation directory and does not read or change the PSoXide GUI configuration or library.",
+            "isolation": if display {
+                "psoxide-emulator runs a Play session in a window inside an emucap-owned launch-generation directory; it records to and replays from play_tape and refuses input, memory-write, state-load, reset and tape control through emucap while the session is on."
+            } else {
+                "psoxide-emucap-host runs headless in an emucap-owned launch-generation directory and does not read or change the PSoXide GUI configuration or library."
+            },
             "next_action": "launch returns after the adapter connects",
         }),
         Err(error) => serde_json::json!({ "launched": false, "error": error.to_string() }),

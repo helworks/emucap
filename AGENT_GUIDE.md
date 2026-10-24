@@ -96,7 +96,7 @@ plugins instead. For NP2kai, also set `EMUCAP_NP2KAI_BUILD_INFO` to the packaged
 | PCSX2 | `EMUCAP_PCSX2_BIN` |
 | DeSmuME | `EMUCAP_DESMUME_BIN` |
 | xemu | `EMUCAP_XEMU_BIN` |
-| PSoXide | `EMUCAP_PSOXIDE_BIN` |
+| PSoXide | `EMUCAP_PSOXIDE_BIN` (headless host), `EMUCAP_PSOXIDE_GUI_BIN` (Play-session window) |
 
 For a packaged GUI executable, use `EMUCAP_PPSSPP_GUI_BIN` or `EMUCAP_DOLPHIN_GUI_BIN`;
 Dolphin's headless executable can be selected with `EMUCAP_DOLPHIN_HEADLESS_BIN`.
@@ -477,6 +477,13 @@ The emucap patches provide native control while the guest is halted.
   `psoxide_input_tape`, `psoxide_hashes`, and `psoxide_run_to_poll` wire extensions replay PSoXide
   input tapes and return `launch --dump-hash` VRAM/display hashes; they are not yet routed through
   the public tool surface.
+  `launch(display:true, play_tape:<absolute path>)` opens the PSoXide Play-session window instead
+  (`psoxide-emulator play-session --emucap --windowed --disc <content> --tape <play_tape>`; build it
+  with `--features emucap` and set `EMUCAP_PSOXIDE_GUI_BIN`). `display:true` without `play_tape`
+  and `play_tape` on any other backend are `bad_params`. While the session is on, the bridge refuses
+  `set_input`, `press_buttons`, `write_memory`, `load_state`, `reset` and tape start/stop with
+  `bad_state` and emits a `play_replay_result` event. A headless launch with `play_tape` makes the
+  host replay that tape.
 
 ## Known issues
 

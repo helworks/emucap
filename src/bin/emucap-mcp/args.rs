@@ -988,6 +988,15 @@ pub(crate) struct LaunchPlanArgs {
     /// steps, input tapes, display hashes, HLE BIOS).
     #[serde(default)]
     pub(crate) psx_backend: Option<PsxBackendArgs>,
+    /// Show the Play-session window when display:true with play_tape; the plan
+    /// then checks the PSoXide window binary. Default: false.
+    #[serde(default)]
+    pub(crate) display: Option<bool>,
+    /// Absolute path of the PSoXide Play-session input tape. PSoXide backend
+    /// only; required with display:true, where the window records to and
+    /// replays from this tape. With a headless launch the host replays it.
+    #[serde(default)]
+    pub(crate) play_tape: Option<String>,
     /// Exact server-produced review value for files named indirectly by a
     /// descriptor. Echo the value returned by launch_plan; do not construct it.
     #[serde(default)]
@@ -1015,6 +1024,11 @@ pub(crate) struct LaunchArgs {
     /// and is never selected automatically.
     #[serde(default)]
     pub(crate) psx_backend: Option<PsxBackendArgs>,
+    /// Absolute path of the PSoXide Play-session input tape. PSoXide backend
+    /// only; required with display:true, where the window records to and
+    /// replays from this tape. With a headless launch the host replays it.
+    #[serde(default)]
+    pub(crate) play_tape: Option<String>,
     /// Exact server-produced review value for files named indirectly by a
     /// descriptor. Obtain it from launch_plan before launching composite media.
     #[serde(default)]

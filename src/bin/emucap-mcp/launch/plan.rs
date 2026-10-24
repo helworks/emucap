@@ -388,17 +388,30 @@ pub(super) fn mupen64plus_precondition(root: &Path, display: bool) -> serde_json
     })
 }
 
-pub(super) fn psoxide_precondition(root: &Path) -> serde_json::Value {
-    match psoxide_launch::resolve_binary(root) {
+pub(super) fn psoxide_precondition(root: &Path, display: bool) -> serde_json::Value {
+    let (binary, source) = if display {
+        (
+            psoxide_launch::resolve_gui_binary(root),
+            "EMUCAP_PSOXIDE_GUI_BIN / installed psoxide-emulator",
+        )
+    } else {
+        (
+            psoxide_launch::resolve_binary(root),
+            "EMUCAP_PSOXIDE_BIN / installed psoxide-emucap-host",
+        )
+    };
+    match binary {
         Some(path) => serde_json::json!({
             "available": true,
             "path": path.display().to_string(),
-            "source": "EMUCAP_PSOXIDE_BIN / installed psoxide-emucap-host",
+            "display": display,
+            "source": source,
         }),
         None => serde_json::json!({
             "available": false,
             "kind": "binary-not-found",
-            "source": "EMUCAP_PSOXIDE_BIN / installed psoxide-emucap-host",
+            "display": display,
+            "source": source,
         }),
     }
 }
@@ -421,7 +434,7 @@ pub(super) fn adapter_binary_precondition_for(
         "desmume_nds" => desmume_nds_binary_precondition(root),
         "ppsspp" => ppsspp_binary_precondition(root),
         "pcsx2" => pcsx2_binary_precondition(root),
-        "psoxide" => psoxide_precondition(root),
+        "psoxide" => psoxide_precondition(root, display),
         "xemu" => super::xemu::precondition(root),
         _ => serde_json::Value::Null,
     }
@@ -471,7 +484,7 @@ pub(super) fn build_required_precondition(
                 .unwrap_or("adapters/mame-neogeo/build.sh")
         )),
         "psoxide" => serde_json::json!(
-            "Build psoxide-emucap-host with `cargo build --release -p psoxide-emucap` in a PSoXide-emulator checkout, then install it beside emucap-mcp or set EMUCAP_PSOXIDE_BIN to its absolute path."
+            "Build psoxide-emucap-host with `cargo build --release -p psoxide-emucap` in a PSoXide-emulator checkout, then install it beside emucap-mcp or set EMUCAP_PSOXIDE_BIN to its absolute path. For display:true (a Play session window) also build psoxide-emulator with `--features emucap` and set EMUCAP_PSOXIDE_GUI_BIN."
         ),
         "mupen64plus" => serde_json::json!(format!(
             "Build the pinned debugger-enabled Mupen64Plus bundle with {} and build emucap-mupen64plus.",
@@ -949,6 +962,17 @@ pub(crate) fn make_launch_plan(port: Option<u16>, args: &LaunchPlanArgs) -> serd
     }
     let (adapter, force_module) =
         adapter_for_system_and_backend(system, args.pc98_backend, args.psx_backend);
+    if args.play_tape.is_some() && adapter != "psoxide" {
+        return serde_json::json!({
+            "ok": false,
+            "ready_to_launch": false,
+            "inference": inference,
+            "error_code": "bad_params",
+            "reason": "play_tape is supported only by the PSoXide backend",
+            "listening_port": p,
+        });
+    }
+    let display = args.display == Some(true);
     let mut preferred_launcher_args = serde_json::json!({
         "content_path": content_path,
         "system": system,
@@ -970,6 +994,12 @@ pub(crate) fn make_launch_plan(port: Option<u16>, args: &LaunchPlanArgs) -> serd
     } else if adapter == "psoxide" {
         preferred_launcher_args["psx_backend"] = serde_json::json!("psoxide");
         preferred_launcher_args["start_frozen"] = serde_json::json!(true);
+        if let Some(tape) = &args.play_tape {
+            preferred_launcher_args["play_tape"] = serde_json::json!(tape);
+        }
+        if display {
+            preferred_launcher_args["display"] = serde_json::json!(true);
+        }
     }
     let environment_defaults = if adapter == "mame_pc98" {
         serde_json::json!({
@@ -1017,7 +1047,7 @@ pub(crate) fn make_launch_plan(port: Option<u16>, args: &LaunchPlanArgs) -> serd
 
     // 선행조건(ready_to_launch=true는 *인자 검증*만 — 빌드·BIOS는 별도다. 미충족 시 launcher가
     // binary-not-found나 BIOS-missing으로 실패하므로 미리 알린다).
-    let adapter_binary = adapter_binary_precondition(adapter, &root);
+    let adapter_binary = adapter_binary_precondition_for(adapter, &root, display);
     let adapter_built = if adapter == "mednafen" {
         serde_json::json!(adapter_binary["available"].as_bool().unwrap_or(false))
     } else {
@@ -1037,6 +1067,13 @@ pub(crate) fn make_launch_plan(port: Option<u16>, args: &LaunchPlanArgs) -> serd
             "the NP2kai backend accepts .hdi hard-disk images only; select the MAME backend for other PC-98 media"
                 .into(),
         );
+    }
+    if adapter == "psoxide" {
+        if let Err(error) =
+            psoxide_launch::validate_play_tape(display, args.play_tape.as_deref().map(Path::new))
+        {
+            launch_blockers.push(error.to_string());
+        }
     }
     if adapter == "psoxide" && content_exists {
         if let Err(error) = psoxide_launch::validate_content(Path::new(content_path)) {
@@ -1170,7 +1207,7 @@ pub(crate) fn make_launch_plan(port: Option<u16>, args: &LaunchPlanArgs) -> serd
         } else if adapter == "mame_neogeo" {
             "Neo Geo MVS, AES, and CD launch headless by default and use profile-specific emucap-owned MAME homes. launch(display:true) opens a window without reading or changing the user's MAME configuration."
         } else if adapter == "psoxide" {
-            "The PSoXide backend is headless only: psoxide-emucap-host boots the content in-process, speaks the control wire itself, and runs every request on its emulator thread between frames. It uses no BIOS file and never reads the PSoXide GUI configuration."
+            "The PSoXide backend is headless by default: psoxide-emucap-host boots the content in-process, speaks the control wire itself, and runs every request on its emulator thread between frames. display:true with play_tape instead opens the PSoXide Play-session window (psoxide-emulator play-session), which records to and replays from that tape and refuses input, memory-write, state-load, reset and tape control through emucap while it runs. It uses no BIOS file and never reads the PSoXide GUI configuration."
         } else if adapter == "mupen64plus" {
             "Nintendo 64 launch is headless by default and uses an emucap-owned Mupen64Plus configuration. Both modes load the pinned Rice renderer; display controls window visibility."
         } else if adapter == "mednafen" {

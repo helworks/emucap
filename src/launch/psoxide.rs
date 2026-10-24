@@ -1,4 +1,5 @@
-//! Isolated launcher for the PSoXide PS1 producer (`psoxide-emucap-host`).
+//! Isolated launcher for the PSoXide PS1 producers: the headless `psoxide-emucap-host` and, for
+//! `display: true`, the `psoxide-emulator play-session` window.
 //!
 //! PSoXide speaks the control wire from inside its own process: the host boots the content,
 //! connects to the direct listener, completes producer authentication with the launch-bound
@@ -34,6 +35,11 @@ pub struct Launch<'a> {
     pub session_token: Option<&'a str>,
     pub runtime: Option<RuntimeEnv<'a>>,
     pub start_frozen: bool,
+    /// Launch the Play-session window (`psoxide-emulator play-session`) instead of the headless
+    /// host. `binary` must then be the GUI executable.
+    pub display: bool,
+    /// Input tape the session records to / replays from. Required with `display`.
+    pub play_tape: Option<&'a Path>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +53,14 @@ fn binary_name() -> &'static str {
         "psoxide-emucap-host.exe"
     } else {
         "psoxide-emucap-host"
+    }
+}
+
+fn gui_binary_name() -> &'static str {
+    if cfg!(windows) {
+        "psoxide-emulator.exe"
+    } else {
+        "psoxide-emulator"
     }
 }
 
@@ -69,6 +83,46 @@ pub fn resolve_binary(repo_root: &Path) -> Option<PathBuf> {
         .into_iter()
         .find(|path| is_runnable_file(path))
         .or_else(|| find_on_path(name))
+}
+
+/// `EMUCAP_PSOXIDE_GUI_BIN` pins the Play-session window binary (`psoxide-emulator`, built with
+/// `--features emucap`). Otherwise prefer one installed beside the running emucap binary, then a
+/// repo-local build, then `PATH`.
+pub fn resolve_gui_binary(repo_root: &Path) -> Option<PathBuf> {
+    if let Some(explicit) = std::env::var_os("EMUCAP_PSOXIDE_GUI_BIN") {
+        let path = PathBuf::from(explicit);
+        return is_runnable_file(&path).then_some(path);
+    }
+    let name = gui_binary_name();
+    let mut candidates = Vec::new();
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(directory) = executable.parent() {
+            candidates.push(directory.join(name));
+        }
+    }
+    candidates.push(repo_root.join("target/release").join(name));
+    candidates
+        .into_iter()
+        .find(|path| is_runnable_file(path))
+        .or_else(|| find_on_path(name))
+}
+
+/// A PSoXide window is a Play session, and a Play session needs its tape. The tape path is
+/// absolute because the producer runs in its own launch-generation directory.
+pub fn validate_play_tape(display: bool, play_tape: Option<&Path>) -> io::Result<()> {
+    if play_tape.is_some_and(|tape| !tape.is_absolute()) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "play_tape must be an absolute path",
+        ));
+    }
+    if display && play_tape.is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a PSoXide window is a Play session; pass play_tape",
+        ));
+    }
+    Ok(())
 }
 
 pub fn validate_content(content: &Path) -> io::Result<()> {
@@ -128,17 +182,28 @@ fn validate_cue_track_modes(cue: &Path) -> io::Result<()> {
 }
 
 pub fn launch_spec(launch: &Launch<'_>, runtime_home: &Path) -> LaunchSpec {
-    let mut spec = LaunchSpec::new(launch.binary, launch.log_path)
-        .arg("--path")
-        .arg(launch.content.to_string_lossy().into_owned())
-        .arg("--port")
-        .arg(launch.port.to_string())
-        .env(
-            "EMUCAP_CONTENT",
-            launch.content.to_string_lossy().into_owned(),
-        )
-        // Relative save-state paths resolve inside the launch generation.
-        .cwd(runtime_home);
+    let content = launch.content.to_string_lossy().into_owned();
+    let mut spec = LaunchSpec::new(launch.binary, launch.log_path);
+    if launch.display {
+        // The session defaults to borderless fullscreen with no Esc key, so ask for a window.
+        spec = spec
+            .arg("play-session")
+            .arg("--emucap")
+            .arg("--windowed")
+            .arg("--disc")
+            .arg(content.clone());
+    } else {
+        spec = spec
+            .arg("--path")
+            .arg(content.clone())
+            .arg("--port")
+            .arg(launch.port.to_string());
+    }
+    if let Some(tape) = launch.play_tape {
+        spec = spec.arg("--tape").arg(tape.to_string_lossy().into_owned());
+    }
+    // Relative save-state paths resolve inside the launch generation.
+    spec = spec.env("EMUCAP_CONTENT", content).cwd(runtime_home);
     if launch.start_frozen {
         spec = spec.env("EMUCAP_START_FROZEN", "1");
     }
@@ -152,6 +217,7 @@ pub fn launch_spec(launch: &Launch<'_>, runtime_home: &Path) -> LaunchSpec {
 }
 
 pub fn launch(launch: &Launch<'_>) -> io::Result<Launched> {
+    validate_play_tape(launch.display, launch.play_tape)?;
     validate_content(launch.content)?;
     let runtime_home = super::emu_generation_dir("psoxide", launch.port, launch.runtime)?;
     let pid = spawn_detached(&launch_spec(launch, &runtime_home))?;

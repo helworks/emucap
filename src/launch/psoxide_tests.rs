@@ -21,6 +21,8 @@ fn launch_spec_passes_content_port_and_launch_identity_privately() {
             adapter_failure_path: &failure,
         }),
         start_frozen: false,
+        display: false,
+        play_tape: None,
     };
     let spec = launch_spec(&launch, &runtime_home);
     assert_eq!(
@@ -58,6 +60,8 @@ fn start_frozen_requests_the_pre_first_instruction_boundary() {
         session_token: None,
         runtime: None,
         start_frozen: true,
+        display: false,
+        play_tape: None,
     };
     let spec = launch_spec(&launch, temp.path());
     assert!(spec
@@ -146,4 +150,125 @@ fn explicit_binary_override_is_authoritative() {
     let temp = tempfile::tempdir().unwrap();
     std::env::set_var("EMUCAP_PSOXIDE_BIN", temp.path().join("missing-host"));
     assert_eq!(resolve_binary(temp.path()), None);
+}
+
+#[test]
+fn display_launch_uses_the_play_session_window() {
+    let temp = tempfile::tempdir().unwrap();
+    let binary = temp.path().join(gui_binary_name());
+    let content = temp.path().join("game.cue");
+    let tape = temp.path().join("play.tape");
+    let log = temp.path().join("psoxide.log");
+    let failure = temp.path().join("failure.json");
+    let launch = Launch {
+        binary: &binary,
+        content: &content,
+        log_path: &log,
+        port: 47892,
+        name: Some("psx-play"),
+        session_token: Some("front-direct-token"),
+        runtime: Some(RuntimeEnv {
+            launch_id: "launch-01arz3ndektsv4rrffq69g5fav",
+            adapter_failure_path: &failure,
+        }),
+        start_frozen: false,
+        display: true,
+        play_tape: Some(&tape),
+    };
+    let spec = launch_spec(&launch, temp.path());
+    assert_eq!(
+        spec.args,
+        vec![
+            "play-session",
+            "--emucap",
+            "--windowed",
+            "--disc",
+            content.to_str().unwrap(),
+            "--tape",
+            tape.to_str().unwrap(),
+        ]
+    );
+    assert_eq!(spec.program.file_name(), binary.file_name());
+    for expected in [
+        ("EMUCAP_CONTENT", content.to_str().unwrap()),
+        ("EMUCAP_NAME", "psx-play"),
+        ("EMUCAP_SESSION_TOKEN", "front-direct-token"),
+        ("EMUCAP_LAUNCH_ID", "launch-01arz3ndektsv4rrffq69g5fav"),
+    ] {
+        assert!(
+            spec.env
+                .contains(&(expected.0.to_string(), expected.1.to_string())),
+            "missing {expected:?}"
+        );
+    }
+    assert!(!spec.args.iter().any(|arg| arg.contains("front-direct")));
+}
+
+#[test]
+fn headless_launch_forwards_play_tape() {
+    let temp = tempfile::tempdir().unwrap();
+    let content = temp.path().join("game.exe");
+    let tape = temp.path().join("play.tape");
+    let launch = Launch {
+        binary: &temp.path().join(binary_name()),
+        content: &content,
+        log_path: &temp.path().join("psoxide.log"),
+        port: 47893,
+        name: None,
+        session_token: None,
+        runtime: None,
+        start_frozen: false,
+        display: false,
+        play_tape: Some(&tape),
+    };
+    let spec = launch_spec(&launch, temp.path());
+    assert_eq!(
+        spec.args,
+        vec![
+            "--path",
+            content.to_str().unwrap(),
+            "--port",
+            "47893",
+            "--tape",
+            tape.to_str().unwrap(),
+        ]
+    );
+}
+
+#[test]
+fn display_launch_without_play_tape_is_rejected() {
+    let temp = tempfile::tempdir().unwrap();
+    let content = temp.path().join("game.exe");
+    std::fs::write(&content, b"content").unwrap();
+    let request = Launch {
+        binary: &temp.path().join(gui_binary_name()),
+        content: &content,
+        log_path: &temp.path().join("psoxide.log"),
+        port: 47894,
+        name: None,
+        session_token: None,
+        runtime: None,
+        start_frozen: false,
+        display: true,
+        play_tape: None,
+    };
+    let error = launch(&request).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    assert_eq!(
+        error.to_string(),
+        "a PSoXide window is a Play session; pass play_tape"
+    );
+}
+
+#[test]
+fn gui_binary_override_is_authoritative() {
+    let _lock = lock_env();
+    let _guard = EnvGuard::new(&["EMUCAP_PSOXIDE_GUI_BIN"]);
+    let temp = tempfile::tempdir().unwrap();
+    std::env::set_var("EMUCAP_PSOXIDE_GUI_BIN", temp.path().join("missing-gui"));
+    assert_eq!(resolve_gui_binary(temp.path()), None);
+    let gui = temp.path().join(gui_binary_name());
+    std::fs::write(&gui, b"x").unwrap();
+    std::env::set_var("EMUCAP_PSOXIDE_GUI_BIN", &gui);
+    assert_eq!(resolve_gui_binary(temp.path()), Some(gui));
 }

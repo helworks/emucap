@@ -4,6 +4,12 @@ Release compatibility is defined in [COMPATIBILITY.md](COMPATIBILITY.md).
 
 ## Unreleased
 
+### Added
+- Launch the PSoXide Play-session window for `launch(display:true, play_tape:...)`
+  (`psoxide-emulator play-session --emucap --windowed`, binary from `EMUCAP_PSOXIDE_GUI_BIN`).
+  A headless PSoXide launch with `play_tape` replays that tape. `display:true` without
+  `play_tape`, and `play_tape` on another backend, are `bad_params`.
+
 ### Fixed
 - Boot a PPSSPP PBP/ELF in place from a `PSP/GAME/<NAME>/` directory. PPSSPP resolves such content
   on the memory stick, so the launcher installs the game directory into the generation's isolated

@@ -87,7 +87,7 @@ NP2kai는 `EMUCAP_NP2KAI_BUILD_INFO`에도 패키지의 `emucap-np2kai-build.jso
 | PCSX2 | `EMUCAP_PCSX2_BIN` |
 | DeSmuME | `EMUCAP_DESMUME_BIN` |
 | xemu | `EMUCAP_XEMU_BIN` |
-| PSoXide | `EMUCAP_PSOXIDE_BIN` |
+| PSoXide | `EMUCAP_PSOXIDE_BIN`(헤드리스 호스트), `EMUCAP_PSOXIDE_GUI_BIN`(Play 세션 창) |
 
 패키지에 포함된 GUI 실행 파일은 `EMUCAP_PPSSPP_GUI_BIN` 또는 `EMUCAP_DOLPHIN_GUI_BIN`으로
 지정한다. Dolphin headless 실행 파일은 `EMUCAP_DOLPHIN_HEADLESS_BIN`으로 지정할 수 있다.
@@ -388,6 +388,12 @@ emucap 패치는 guest가 정지한 상태에서도 네이티브 제어 요청�
   부팅한다. 디스크 로더는 2352바이트 raw 또는 2048바이트 cooked 섹터의 `MODE1`/`MODE2` 트랙과
   `AUDIO` 트랙을 읽으며, 그 밖의 트랙 모드(예: `MODE2/2336`)를 선언한 `.cue`는 `launch_plan`이 차단한다. 프레임(route tick)·컨트롤러 폴·명령 단위 스텝, 프로즌 시작, 메모리 배치, 2포트 입력, PNG 캡처,
   PSoXide 세이브스테이트, 리셋, exec 브레이크포인트, 이벤트를 지원한다.
+  `launch(display:true, play_tape:<절대 경로>)`는 헤드리스 호스트 대신 PSoXide Play 세션 창을 연다
+  (`psoxide-emulator play-session --emucap --windowed --disc <content> --tape <play_tape>`;
+  `--features emucap`으로 빌드하고 `EMUCAP_PSOXIDE_GUI_BIN`을 지정한다). `play_tape` 없는
+  `display:true`와 다른 백엔드의 `play_tape`는 `bad_params`다. 세션이 켜져 있는 동안 브리지는
+  `set_input`, `press_buttons`, `write_memory`, `load_state`, `reset`, 테이프 시작/중지를
+  `bad_state`로 거부하고 `play_replay_result` 이벤트를 낸다.
 
 ## 더 보기
 
