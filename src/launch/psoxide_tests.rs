@@ -1,6 +1,14 @@
 use super::*;
 use crate::test_env::{lock_env, EnvGuard};
 
+#[cfg(unix)]
+fn make_executable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = std::fs::metadata(path).unwrap().permissions();
+    perms.set_mode(perms.mode() | 0o755);
+    std::fs::set_permissions(path, perms).unwrap();
+}
+
 #[test]
 fn launch_spec_passes_content_port_and_launch_identity_privately() {
     let temp = tempfile::tempdir().unwrap();
@@ -288,6 +296,8 @@ fn gui_binary_override_is_authoritative() {
     assert_eq!(resolve_gui_binary(temp.path()), None);
     let gui = temp.path().join(gui_binary_name());
     std::fs::write(&gui, b"x").unwrap();
+    #[cfg(unix)]
+    make_executable(&gui);
     std::env::set_var("EMUCAP_PSOXIDE_GUI_BIN", &gui);
     assert_eq!(resolve_gui_binary(temp.path()), Some(gui));
 }
