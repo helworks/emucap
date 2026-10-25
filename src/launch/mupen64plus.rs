@@ -20,7 +20,78 @@ pub struct BuildMetadata {
     pub bundle_sha256: String,
     pub patchset_sha256: String,
     pub test_rom_sha256: String,
+    /// Present when the build also produced the pinned LLE RSP and RDP plugins.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lle_plugins: Option<LlePlugins>,
     pub debugger: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LlePlugins {
+    pub cxd4_commit: String,
+    pub angrylion_commit: String,
+}
+
+/// Operator-selected plugin profile. `hle` (default) is the HLE RSP with the Rice renderer and
+/// the graphics-task frame boundary. `lle` loads the cxd4 RSP interpreter and the angrylion-plus
+/// RDP renderer and reports one frame per vertical interrupt, for titles such as libdragon
+/// homebrew that never submit an OSTask graphics task.
+pub const RENDERER_ENV: &str = "EMUCAP_N64_RENDERER";
+pub const FRAME_BOUNDARY_ENV: &str = "EMUCAP_N64_FRAME_BOUNDARY";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Renderer {
+    Hle,
+    Lle,
+}
+
+impl Renderer {
+    pub fn parse(value: &str) -> io::Result<Self> {
+        match value {
+            "" | "hle" => Ok(Self::Hle),
+            "lle" => Ok(Self::Lle),
+            other => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{RENDERER_ENV} must be \"hle\" or \"lle\", not {other:?}"),
+            )),
+        }
+    }
+
+    pub fn from_env() -> io::Result<Self> {
+        match std::env::var(RENDERER_ENV) {
+            Ok(value) => Self::parse(&value),
+            Err(std::env::VarError::NotPresent) => Ok(Self::Hle),
+            Err(error) => Err(io::Error::new(io::ErrorKind::InvalidInput, error)),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Hle => "hle",
+            Self::Lle => "lle",
+        }
+    }
+
+    pub fn video_plugin(self) -> &'static str {
+        match self {
+            Self::Hle => "mupen64plus-video-rice",
+            Self::Lle => "mupen64plus-video-angrylion-plus",
+        }
+    }
+
+    pub fn rsp_plugin(self) -> &'static str {
+        match self {
+            Self::Hle => "mupen64plus-rsp-hle",
+            Self::Lle => "mupen64plus-rsp-cxd4",
+        }
+    }
+
+    pub fn frame_boundary(self) -> &'static str {
+        match self {
+            Self::Hle => "gfx_task",
+            Self::Lle => "vi",
+        }
+    }
 }
 
 pub struct Launch<'a> {
@@ -126,23 +197,26 @@ pub fn require_compatible_root(
     root: &Path,
     _display: bool,
 ) -> io::Result<BuildMetadata> {
+    let renderer = Renderer::from_env()?;
     if !library_exists(root, "libmupen64plus")
-        || !library_exists(root, "mupen64plus-rsp-hle")
+        || !library_exists(root, renderer.rsp_plugin())
         || !library_exists(root, "mupen64plus-input-sdl")
     {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
             format!(
-                "Mupen64Plus core, RSP, or input plugin is missing under {}",
+                "Mupen64Plus core, {} RSP, or input plugin is missing under {}",
+                renderer.as_str(),
                 root.display()
             ),
         ));
     }
-    if !library_exists(root, "mupen64plus-video-rice") {
+    if !library_exists(root, renderer.video_plugin()) {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
             format!(
-                "Mupen64Plus Rice video plugin is missing under {}",
+                "Mupen64Plus video plugin {} is missing under {}",
+                renderer.video_plugin(),
                 root.display()
             ),
         ));
@@ -173,6 +247,18 @@ pub fn require_compatible_root(
         && metadata.patchset_sha256 == required_lock_value(&lock, "M64P_PATCHSET_SHA256")?
         && metadata.test_rom_sha256 == required_lock_value(&lock, "M64P_TEST_ROM_SHA256")?
         && metadata.debugger;
+    let matches_lock = matches_lock
+        && match renderer {
+            Renderer::Hle => true,
+            Renderer::Lle => match &metadata.lle_plugins {
+                Some(plugins) => {
+                    lock_value(&lock, "M64P_CXD4_COMMIT").as_ref() == Some(&plugins.cxd4_commit)
+                        && lock_value(&lock, "M64P_ANGRYLION_COMMIT").as_ref()
+                            == Some(&plugins.angrylion_commit)
+                }
+                None => false,
+            },
+        };
     if !matches_lock {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -208,12 +294,17 @@ pub fn validate_content(content: &Path) -> io::Result<()> {
 }
 
 pub fn launch_spec(launch: &Launch<'_>, runtime_home: &Path) -> LaunchSpec {
-    let mut spec = LaunchSpec::new(launch.binary, launch.log_path)
+    let spec = LaunchSpec::new(launch.binary, launch.log_path)
         .arg(launch.port.to_string())
         .arg(launch.content.to_string_lossy().into_owned())
         .arg(launch.root.to_string_lossy().into_owned())
         .arg(runtime_home.to_string_lossy().into_owned())
-        .env("EMUCAP_N64_DISPLAY", if launch.display { "1" } else { "0" })
+        .env("EMUCAP_N64_DISPLAY", if launch.display { "1" } else { "0" });
+    // launch() admits the profile through require_compatible_root before building the spec.
+    let renderer = Renderer::from_env().unwrap_or(Renderer::Hle);
+    let mut spec = spec
+        .env(RENDERER_ENV, renderer.as_str())
+        .env(FRAME_BOUNDARY_ENV, renderer.frame_boundary())
         .env(
             "EMUCAP_CONTENT",
             launch.content.to_string_lossy().into_owned(),

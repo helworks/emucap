@@ -46,6 +46,7 @@ fn write_root(repo: &Path) -> PathBuf {
             bundle_sha256: "a".repeat(64),
             patchset_sha256: "c".repeat(64),
             test_rom_sha256: "b".repeat(64),
+            lle_plugins: None,
             debugger: true,
         })
         .unwrap(),
@@ -56,6 +57,9 @@ fn write_root(repo: &Path) -> PathBuf {
 
 #[test]
 fn compatible_root_requires_pinned_metadata_and_renderer_in_both_modes() {
+    let _lock = lock_env();
+    let _guard = EnvGuard::new(&[RENDERER_ENV]);
+    std::env::remove_var(RENDERER_ENV);
     let repo = tempfile::tempdir().unwrap();
     let root = write_root(repo.path());
     assert!(require_compatible_root(repo.path(), &root, true).is_ok());
@@ -81,7 +85,78 @@ fn compatible_root_requires_pinned_metadata_and_renderer_in_both_modes() {
 }
 
 #[test]
+fn lle_renderer_requires_its_plugins_and_pinned_metadata() {
+    let _lock = lock_env();
+    let _guard = EnvGuard::new(&[RENDERER_ENV]);
+    let repo = tempfile::tempdir().unwrap();
+    let root = write_root(repo.path());
+    let lock_path = repo.path().join("adapters/mupen64plus/upstream.lock");
+    let mut lock = std::fs::read_to_string(&lock_path).unwrap();
+    lock.push_str("M64P_CXD4_COMMIT=2222\nM64P_ANGRYLION_COMMIT=3333\n");
+    std::fs::write(&lock_path, lock).unwrap();
+    std::env::set_var(RENDERER_ENV, "lle");
+    // HLE plugins alone do not satisfy the LLE profile.
+    assert!(require_compatible_root(repo.path(), &root, false).is_err());
+    let extension = if cfg!(windows) { "dll" } else { "dylib" };
+    for stem in ["mupen64plus-rsp-cxd4", "mupen64plus-video-angrylion-plus"] {
+        std::fs::write(root.join(format!("{stem}.{extension}")), b"fixture").unwrap();
+    }
+    // The plugins must come from the build pinned by upstream.lock.
+    assert!(require_compatible_root(repo.path(), &root, false).is_err());
+    let metadata_path = root.join("emucap-mupen64plus-build.json");
+    let mut metadata: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&metadata_path).unwrap()).unwrap();
+    metadata["lle_plugins"] = serde_json::json!({"cxd4_commit": "2222", "angrylion_commit": "9999"});
+    std::fs::write(&metadata_path, serde_json::to_vec(&metadata).unwrap()).unwrap();
+    assert!(require_compatible_root(repo.path(), &root, false).is_err());
+    metadata["lle_plugins"]["angrylion_commit"] = serde_json::json!("3333");
+    std::fs::write(&metadata_path, serde_json::to_vec(&metadata).unwrap()).unwrap();
+    assert!(require_compatible_root(repo.path(), &root, false).is_ok());
+    std::env::set_var(RENDERER_ENV, "gliden64");
+    assert!(require_compatible_root(repo.path(), &root, false).is_err());
+}
+
+#[test]
+fn launch_spec_forwards_renderer_profile_and_frame_boundary() {
+    let _lock = lock_env();
+    let _guard = EnvGuard::new(&[RENDERER_ENV]);
+    let temp = tempfile::tempdir().unwrap();
+    let binary = temp.path().join("emucap-mupen64plus");
+    let rom = temp.path().join("test.z64");
+    let log = temp.path().join("n64.log");
+    let launch = Launch {
+        binary: &binary,
+        repo_root: temp.path(),
+        root: temp.path(),
+        content: &rom,
+        log_path: &log,
+        port: 47890,
+        name: None,
+        session_token: None,
+        runtime: None,
+        display: false,
+    };
+    let env_of = |spec: &LaunchSpec, key: &str| {
+        spec.env
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value.clone())
+    };
+    std::env::remove_var(RENDERER_ENV);
+    let spec = launch_spec(&launch, temp.path());
+    assert_eq!(env_of(&spec, RENDERER_ENV).as_deref(), Some("hle"));
+    assert_eq!(env_of(&spec, FRAME_BOUNDARY_ENV).as_deref(), Some("gfx_task"));
+    std::env::set_var(RENDERER_ENV, "lle");
+    let spec = launch_spec(&launch, temp.path());
+    assert_eq!(env_of(&spec, RENDERER_ENV).as_deref(), Some("lle"));
+    assert_eq!(env_of(&spec, FRAME_BOUNDARY_ENV).as_deref(), Some("vi"));
+}
+
+#[test]
 fn compatible_root_requires_the_input_plugin_in_every_mode() {
+    let _lock = lock_env();
+    let _guard = EnvGuard::new(&[RENDERER_ENV]);
+    std::env::remove_var(RENDERER_ENV);
     let repo = tempfile::tempdir().unwrap();
     let root = write_root(repo.path());
     std::fs::remove_file(library_path(&root, "mupen64plus-input-sdl").unwrap()).unwrap();

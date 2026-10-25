@@ -118,10 +118,13 @@ impl Mupen64PlusHost {
         eprintln!("[mupen64plus-native] ROM opened");
 
         let display = display_requested();
+        let renderer = crate::launch::mupen64plus::Renderer::from_env()
+            .map_err(|error| N64Error::BadParams(error.to_string()))?;
+        eprintln!("[mupen64plus-native] renderer profile {}", renderer.as_str());
         let requested_plugins = [
-            (M64PLUGIN_GFX, "mupen64plus-video-rice"),
+            (M64PLUGIN_GFX, renderer.video_plugin()),
             (M64PLUGIN_INPUT, "mupen64plus-input-sdl"),
-            (M64PLUGIN_RSP, "mupen64plus-rsp-hle"),
+            (M64PLUGIN_RSP, renderer.rsp_plugin()),
         ];
 
         for (kind, stem) in requested_plugins {

@@ -83,6 +83,8 @@ PATCHES=(
   "$HERE/patches/0013-controller-poll-boundary.patch"
   "$HERE/patches/0014-hidden-renderer.patch"
   "$HERE/patches/0015-state-job-boundary.patch"
+  "$HERE/patches/0016-vi-frame-boundary.patch"
+  "$HERE/patches/0017-backport-rdram-initialization.patch"
 )
 if command -v shasum >/dev/null 2>&1; then
   ACTUAL_PATCHSET_SHA256="$(for source_patch in "${PATCHES[@]}"; do cat "$source_patch"; done | shasum -a 256 | awk '{print $1}')"
@@ -119,6 +121,11 @@ PATCHED_MEMBERS=(
   "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/main/savestates.c"
   "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/main/savestates.h"
   "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/main/workqueue.c"
+  "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/rcp/rsp/rsp_core.c"
+  "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/rcp/vi/vi_controller.c"
+  "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/rcp/ri/ri_controller.h"
+  "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/rdram/rdram.c"
+  "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/rdram/rdram.h"
 )
 # Added headers are not archive members; recreate them from the maintained patches.
 rm -f "$SRC/source/mupen64plus-core/src/device/r4300/interrupt_jitter.h"
@@ -189,6 +196,52 @@ fi
   exit 1
 }
 
+# LLE renderer profile (EMUCAP_N64_RENDERER=lle): titles that program the RSP and RDP directly,
+# such as libdragon homebrew, need a low-level RSP and an RDP-level video plugin. Both are pinned
+# by commit in upstream.lock and installed beside the HLE plugins.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) LIB_EXT=dll ;;
+  Darwin) LIB_EXT=dylib ;;
+  *) LIB_EXT=so ;;
+esac
+fetch_pinned() {
+  local repo="$1" commit="$2" dir="$3"
+  if [ ! -d "$dir/.git" ]; then
+    rm -rf "$dir"
+    git init -q "$dir"
+    git -C "$dir" remote add origin "$repo"
+  fi
+  git -C "$dir" fetch -q --depth 1 origin "$commit"
+  git -C "$dir" checkout -q --detach "$commit"
+  git -C "$dir" reset -q --hard "$commit"
+  git -C "$dir" clean -fdxq
+  [ "$(git -C "$dir" rev-parse HEAD)" = "$commit" ] || {
+    echo "ERROR: $repo revision mismatch in $dir" >&2
+    exit 1
+  }
+}
+LLE_BUILT=false
+if [ "${EMUCAP_M64P_LLE:-1}" != "0" ]; then
+  CXD4_SRC="$WORK/mupen64plus-rsp-cxd4"
+  fetch_pinned "$M64P_CXD4_REPO" "$M64P_CXD4_COMMIT" "$CXD4_SRC"
+  make -C "$CXD4_SRC/projects/unix" all APIDIR="$CORE_SRC/src/api" -j "$JOBS"
+  CXD4_LIB="$(find "$CXD4_SRC/projects/unix" -maxdepth 1 -name "mupen64plus-rsp-cxd4*.$LIB_EXT" -print -quit)"
+  [ -n "$CXD4_LIB" ] || { echo "ERROR: cxd4 RSP plugin was not produced" >&2; exit 1; }
+  cp -f "$CXD4_LIB" "$SRC/test/mupen64plus-rsp-cxd4.$LIB_EXT"
+
+  ANGRYLION_SRC="$WORK/angrylion-rdp-plus"
+  fetch_pinned "$M64P_ANGRYLION_REPO" "$M64P_ANGRYLION_COMMIT" "$ANGRYLION_SRC"
+  CMAKE_GENERATOR_ARGS=()
+  if command -v ninja >/dev/null 2>&1; then CMAKE_GENERATOR_ARGS=(-G Ninja); fi
+  cmake -S "$ANGRYLION_SRC" -B "$ANGRYLION_SRC/build" "${CMAKE_GENERATOR_ARGS[@]}" \
+    -DCMAKE_BUILD_TYPE=Release -DBUILD_MUPEN64PLUS=ON -DBUILD_PROJECT64=OFF
+  cmake --build "$ANGRYLION_SRC/build" -j "$JOBS"
+  ANGRYLION_LIB="$(find "$ANGRYLION_SRC/build" -maxdepth 2 -name "mupen64plus-video-angrylion-plus.$LIB_EXT" -print -quit)"
+  [ -n "$ANGRYLION_LIB" ] || { echo "ERROR: angrylion-plus video plugin was not produced" >&2; exit 1; }
+  cp -f "$ANGRYLION_LIB" "$SRC/test/mupen64plus-video-angrylion-plus.$LIB_EXT"
+  LLE_BUILT=true
+fi
+
 # The Windows host loads the core and plugins with the safe DLL search flags. Those flags
 # intentionally ignore PATH, so a MinGW build must carry its non-system runtime DLLs beside the
 # native modules. `ldd` reports the transitive closure for the executable, core, and plugins; keep
@@ -241,6 +294,10 @@ ROM_SHA="$(sha256_path "$ROM")"
   printf '  "bundle_sha256": "%s",\n' "$M64P_BUNDLE_SHA256"
   printf '  "patchset_sha256": "%s",\n' "$M64P_PATCHSET_SHA256"
   printf '  "test_rom_sha256": "%s",\n' "$ROM_SHA"
+  if [ "$LLE_BUILT" = true ]; then
+    printf '  "lle_plugins": {"cxd4_commit": "%s", "angrylion_commit": "%s"},\n' \
+      "$M64P_CXD4_COMMIT" "$M64P_ANGRYLION_COMMIT"
+  fi
   printf '  "debugger": true\n'
   printf '}\n'
 } >"$SRC/test/emucap-mupen64plus-build.json"

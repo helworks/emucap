@@ -1,0 +1,57 @@
+--- a/src/main/main.h
++++ b/src/main/main.h
+@@ -62,6 +62,7 @@
+ 
+ void new_frame(void);
+ void new_vi(void);
++int main_emucap_vi_frames(void);
+ 
+ void main_switch_next_pak(int control_id);
+ void main_switch_plugin_pak(int control_id);
+--- a/src/main/main.c
++++ b/src/main/main.c
+@@ -1033,6 +1033,19 @@
+     }
+ }
+ 
++/* emucap: titles that drive the RDP directly (libdragon) never submit an OSTask graphics task.
++ * EMUCAP_N64_FRAME_BOUNDARY=vi reports one frame per vertical interrupt instead. The value is
++ * fixed for the process and read once. */
++int main_emucap_vi_frames(void)
++{
++    static int cached = -1;
++    if (cached < 0) {
++        const char *boundary = SDL_getenv("EMUCAP_N64_FRAME_BOUNDARY");
++        cached = boundary != NULL && strcmp(boundary, "vi") == 0;
++    }
++    return cached;
++}
++
+ void new_frame(void)
+ {
+     if (g_FrameCallback != NULL)
+--- a/src/device/rcp/rsp/rsp_core.c
++++ b/src/device/rcp/rsp/rsp_core.c
+@@ -342,7 +342,8 @@
+         timed_section_end(TIMED_SECTION_GFX);
+ #endif
+         sp->regs2[SP_PC_REG] |= save_pc;
+-        new_frame();
++        if (!main_emucap_vi_frames())
++            new_frame();
+ 
+         if (sp->mi->regs[MI_INTR_REG] & MI_INTR_DP)
+         {
+--- a/src/device/rcp/vi/vi_controller.c
++++ b/src/device/rcp/vi/vi_controller.c
+@@ -162,6 +162,10 @@
+     else
+         gfx.updateScreen();
+ 
++    /* emucap: VI frame boundary for titles without graphics tasks. */
++    if (main_emucap_vi_frames())
++        new_frame();
++
+     /* allow main module to do things on VI event */
+     new_vi();
+ 
