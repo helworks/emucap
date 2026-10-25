@@ -1,0 +1,107 @@
+Backport upstream mupen64plus-core 89ac8da3 and 85e71594 (Morilli, 2026-05-30):
+treat every COP0 opcode with rs >= 16 as a TLB-group instruction and decode undefined TLB
+sub-opcodes as NOP instead of raising a reserved-instruction exception. libdragon idle loops
+execute such an encoding (0x42800060); the VR4300 ignores it, 2.6.0 faulted.
+
+--- a/src/device/r4300/idec.c
++++ b/src/device/r4300/idec.c
+@@ -372,22 +372,22 @@
+ /* TLB opcodes table
+  * 176-239
+  */
+-    RESERVED,    TLBR,        TLBWI,       RESERVED,
+-    RESERVED,    RESERVED,    TLBWR,       RESERVED,
+-    TLBP,        RESERVED,    RESERVED,    RESERVED,
+-    RESERVED,    RESERVED,    RESERVED,    RESERVED,
+-    RESERVED,    RESERVED,    RESERVED,    RESERVED,
+-    RESERVED,    RESERVED,    RESERVED,    RESERVED,
+-    ERET,        RESERVED,    RESERVED,    RESERVED,
+-    RESERVED,    RESERVED,    RESERVED,    RESERVED,
+-    RESERVED,    RESERVED,    RESERVED,    RESERVED,
+-    RESERVED,    RESERVED,    RESERVED,    RESERVED,
+-    RESERVED,    RESERVED,    RESERVED,    RESERVED,
+-    RESERVED,    RESERVED,    RESERVED,    RESERVED,
+-    RESERVED,    RESERVED,    RESERVED,    RESERVED,
+-    RESERVED,    RESERVED,    RESERVED,    RESERVED,
+-    RESERVED,    RESERVED,    RESERVED,    RESERVED,
+-    RESERVED,    RESERVED,    RESERVED,    RESERVED,
++    NOP,         TLBR,        TLBWI,       NOP,
++    NOP,         NOP,         TLBWR,       NOP,
++    TLBP,        NOP,         NOP,         NOP,
++    NOP,         NOP,         NOP,         NOP,
++    NOP,         NOP,         NOP,         NOP,
++    NOP,         NOP,         NOP,         NOP,
++    ERET,        NOP,         NOP,         NOP,
++    NOP,         NOP,         NOP,         NOP,
++    NOP,         NOP,         NOP,         NOP,
++    NOP,         NOP,         NOP,         NOP,
++    NOP,         NOP,         NOP,         NOP,
++    NOP,         NOP,         NOP,         NOP,
++    NOP,         NOP,         NOP,         NOP,
++    NOP,         NOP,         NOP,         NOP,
++    NOP,         NOP,         NOP,         NOP,
++    NOP,         NOP,         NOP,         NOP,
+ /* COP1 opcodes table
+  * 240-247
+  */
+@@ -430,7 +430,7 @@
+ /* Pseudo opcodes
+  * 336
+  */
+-	NOP
++    NOP
+ };
+ 
+ #define E_INV       {   0,  0, 0x00 }
+@@ -459,7 +459,7 @@
+ static const struct r4300_op_escape r4300_escapes_table[] = {
+ 
+     /* 000000 - special */
+-	E_SPECIAL, E_SPECIAL, E_SPECIAL, E_SPECIAL,
++    E_SPECIAL, E_SPECIAL, E_SPECIAL, E_SPECIAL,
+ 
+     /* 000001 - regimm */
+     E_REGIMM,  E_REGIMM,  E_REGIMM,  E_REGIMM,
+--- a/src/device/r4300/pure_interp.c
++++ b/src/device/r4300/pure_interp.c
+@@ -446,23 +446,32 @@
+ 		case 5: /* Coprocessor 0 opcode 5: DMTC0 */
+ 			MTC0(r4300, op);
+ 			break;
+-		case 16: /* Coprocessor 0 opcode 16: TLB */
++		case 2:
++		case 3:
++		case 6:
++		case 7:
++		case 8:
++		case 9:
++		case 10:
++		case 11:
++		case 12:
++		case 13:
++		case 14:
++		case 15: /* Coprocessor 0 opcodes 2..3, 6..15: Reserved Instructions */
++			RESERVED(r4300, op);
++			break;
++		default: /* Coprocessor 0 opcode 16..31: TLB */
+ 			switch (op & 0x3F) {
+ 			case 1: TLBR(r4300, op); break;
+ 			case 2: TLBWI(r4300, op); break;
+ 			case 6: TLBWR(r4300, op); break;
+ 			case 8: TLBP(r4300, op); break;
+ 			case 24: ERET(r4300, op); break;
+-			default: /* TLB sub-opcodes 0, 3..5, 7, 9..23, 25..63:
+-			            Reserved Instructions */
+-				RESERVED(r4300, op);
++			default: /* TLB sub-opcodes 0, 3..5, 7, 9..23, 25..63: undefined */
++				NOP(r4300, 0);
+ 				break;
+ 			} /* switch (op & 0x3F) for Coprocessor 0 TLB opcodes */
+ 			break;
+-		default: /* Coprocessor 0 opcodes 2..3, 5..15, 17..31:
+-		            Reserved Instructions */
+-			RESERVED(r4300, op);
+-			break;
+ 		} /* switch ((op >> 21) & 0x1F) for the Coprocessor 0 prefix */
+ 		break;
+ 	case 17: /* Coprocessor 1 prefix */
