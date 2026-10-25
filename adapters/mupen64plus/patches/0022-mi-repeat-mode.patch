@@ -1,0 +1,65 @@
+emucap: emulate MI repeat mode for CPU writes to RDRAM.
+
+libdragon's interrupt initialization verifies MI repeat mode (its hardware memset) and aborts
+with "Your emulator is not accurate enough to run this ROM" when a repeat write lands as a
+single word. Repeat the duplicated 32-bit pattern for RepeatCount+1 bytes and clear the mode.
+
+--- a/src/device/rdram/rdram.c
++++ b/src/device/rdram/rdram.c
+@@ -26,6 +26,7 @@
+ #include "device/device.h"
+ #include "device/memory/memory.h"
+ #include "device/r4300/r4300_core.h"
++#include "device/rcp/mi/mi_controller.h"
+ #include "device/rcp/ri/ri_controller.h"
+ 
+ #include <string.h>
+@@ -244,11 +245,48 @@
+     }
+ }
+ 
++/* emucap: MI repeat ("init") mode. A CPU write while MI_MODE bit 7 is set writes RepeatCount+1
++ * bytes of the 32-bit value duplicated onto the 64-bit bus, starting at the first unmasked byte,
++ * then the mode clears itself (n64brew MIPS Interface). libdragon uses it for memset and refuses
++ * to run when it is missing. Unaligned carry quirks of real hardware are not modeled. */
++static int write_rdram_dram_repeat(struct rdram* rdram, uint32_t address, uint32_t value, uint32_t mask)
++{
++    struct mi_controller* mi = rdram->r4300->mi;
++    uint32_t mode = mi->regs[MI_INIT_MODE_REG];
++    uint32_t start = address & ~UINT32_C(3);
++    uint32_t count = (mode & 0x7f) + 1;
++    uint32_t i;
++    uint64_t pattern = ((uint64_t)value << 32) | value;
++
++    if ((mode & 0x80) == 0)
++        return 0;
++
++    for (i = 0; i < 4 && ((mask >> (24 - 8 * i)) & 0xff) == 0; ++i)
++        ;
++    if (i < 4)
++        start += i;
++
++    for (i = 0; i < count; ++i) {
++        uint32_t byte_address = start + i;
++        uint32_t shift = 24 - 8 * (byte_address & 3);
++        uint8_t byte = (uint8_t)(pattern >> (56 - 8 * (byte_address & 7)));
++        if (byte_address < rdram->dram_size)
++            masked_write(&rdram->dram[rdram_dram_address(byte_address)], (uint32_t)byte << shift,
++                         UINT32_C(0xff) << shift);
++    }
++
++    mi->regs[MI_INIT_MODE_REG] &= ~UINT32_C(0x80);
++    return 1;
++}
++
+ void write_rdram_dram(void* opaque, uint32_t address, uint32_t value, uint32_t mask)
+ {
+     struct rdram* rdram = (struct rdram*)opaque;
+     uint32_t addr = rdram_dram_address(address);
+ 
++    if (write_rdram_dram_repeat(rdram, address, value, mask))
++        return;
++
+     if (address < rdram->dram_size)
+     {
+         masked_write(&rdram->dram[addr], value, mask);
