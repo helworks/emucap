@@ -171,6 +171,14 @@ if [ "$(uname)" = "Darwin" ]; then
 fi
 
 JOBS="${EMUCAP_BUILD_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
+# The core Makefile derives the libopcodes version from `strings --version` and reads a third
+# component unconditionally. Binutils releases such as 2.46 print two, which silently selects the
+# pre-2.29 print_insn_i386 path and fails to compile. Pass a normalized three-part version.
+OPCODES_VERSION="$("${M64P_STRINGS:-strings}" --version | head -n1 | awk '{print $NF}')"
+case "$OPCODES_VERSION" in
+  *.*.*) ;;
+  *.*) OPCODES_VERSION="$OPCODES_VERSION.0" ;;
+esac
 (
   cd "$SRC"
   M64P_COMPONENTS="core rom ui-console audio-sdl input-sdl rsp-hle video-rice" \
@@ -179,6 +187,7 @@ JOBS="${EMUCAP_BUILD_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
       NO_SPEEX=1 \
       NO_SRC=1 \
       STRINGS="${M64P_STRINGS:-strings}" \
+      LIBOPCODES_VERSION="$OPCODES_VERSION" \
       INSTALL_STRIP_FLAG= \
       PREFIX="$SRC/test" \
       -j "$JOBS"
