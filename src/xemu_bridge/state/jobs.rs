@@ -2,7 +2,8 @@ use super::*;
 
 use std::time::Instant;
 
-const STATE_JOB_TIMEOUT: Duration = Duration::from_secs(10);
+const STATE_JOB_TIMEOUT: Duration = Duration::from_secs(60);
+const STATE_JOB_MIN_POLL_BUDGET: Duration = Duration::from_secs(5);
 const STATE_JOB_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,10 +112,16 @@ impl<Q: QmpTransport, G: GdbTransport> XemuBridge<Q, G> {
                 "devices":[hdd_node],
             })
         };
-        self.qmp.execute(command, Some(arguments))?;
+        // QEMU can complete an internal snapshot inside the command's own main-loop dispatch, so
+        // the command and its polls share the job budget instead of the 5 s native reply budget.
         let deadline = Instant::now() + STATE_JOB_TIMEOUT;
+        self.qmp
+            .execute_with_timeout(command, Some(arguments), STATE_JOB_TIMEOUT)?;
         loop {
-            let jobs = self.qmp.execute("query-jobs", None)?;
+            let budget = deadline
+                .saturating_duration_since(Instant::now())
+                .max(STATE_JOB_MIN_POLL_BUDGET);
+            let jobs = self.qmp.execute_with_timeout("query-jobs", None, budget)?;
             let jobs = jobs.as_array().ok_or_else(|| {
                 XemuBridgeError::Emulator("xemu query-jobs did not return a list".into())
             })?;

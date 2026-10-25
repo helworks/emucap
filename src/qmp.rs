@@ -37,6 +37,17 @@ pub type QmpResult<T> = Result<T, QmpError>;
 pub trait QmpTransport {
     fn execute(&mut self, command: &str, arguments: Option<Value>) -> QmpResult<Value>;
 
+    /// Execute with an explicit response budget for commands that QEMU completes
+    /// synchronously in its main loop, such as internal snapshot jobs.
+    fn execute_with_timeout(
+        &mut self,
+        command: &str,
+        arguments: Option<Value>,
+        _timeout: Duration,
+    ) -> QmpResult<Value> {
+        self.execute(command, arguments)
+    }
+
     fn drain_events(&mut self) -> Vec<Value> {
         Vec::new()
     }
@@ -300,6 +311,15 @@ fn retryable_handshake_io(error: &std::io::Error) -> bool {
 impl QmpTransport for QmpClient {
     fn execute(&mut self, command: &str, arguments: Option<Value>) -> QmpResult<Value> {
         self.execute_inner(command, arguments, Instant::now() + self.timeout)
+    }
+
+    fn execute_with_timeout(
+        &mut self,
+        command: &str,
+        arguments: Option<Value>,
+        timeout: Duration,
+    ) -> QmpResult<Value> {
+        self.execute_inner(command, arguments, Instant::now() + timeout)
     }
 
     fn drain_events(&mut self) -> Vec<Value> {

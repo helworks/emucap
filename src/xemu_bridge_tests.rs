@@ -11,6 +11,7 @@ struct FakeQmp {
     pending_events: Vec<Value>,
     replies: VecDeque<(String, QmpResult<Value>)>,
     calls: Vec<(String, Option<Value>)>,
+    budgets: Vec<(String, Duration)>,
     terminal: bool,
     require_stop_before_call: Option<(usize, Rc<Cell<bool>>)>,
 }
@@ -23,6 +24,7 @@ impl FakeQmp {
                 .map(|(command, value)| (command.into(), Ok(value)))
                 .collect(),
             calls: Vec::new(),
+            budgets: Vec::new(),
             pending_events: Vec::new(),
             terminal: false,
             require_stop_before_call: None,
@@ -65,6 +67,16 @@ impl QmpTransport for FakeQmp {
             .unwrap_or_else(|| panic!("unexpected QMP command: {command}"));
         assert_eq!(command, expected);
         response
+    }
+
+    fn execute_with_timeout(
+        &mut self,
+        command: &str,
+        arguments: Option<Value>,
+        timeout: Duration,
+    ) -> QmpResult<Value> {
+        self.budgets.push((command.into(), timeout));
+        self.execute(command, arguments)
     }
 
     fn is_terminal(&self) -> bool {
@@ -642,6 +654,41 @@ fn save_state_publishes_generation_media_eeprom_and_host_identity() {
         temp.path().join("game.xiso").display().to_string()
     );
     assert_eq!(container["controller"]["port"], 0);
+}
+
+#[test]
+fn snapshot_jobs_wait_beyond_the_native_reply_budget() {
+    // xemu can finish an internal snapshot inside the snapshot-save dispatch itself; a 5 s
+    // reply budget poisoned QMP on Windows after the guest had dirtied the generation HDD.
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("xbox-state.json");
+    let mut bridge = state_bridge(
+        FakeQmp::new(vec![
+            ("query-status", machine(false)),
+            ("xemu-emucap-status", extension(0, false, 0, false)),
+            ("query-block", state_block_layout(temp.path())),
+            ("snapshot-save", json!({})),
+            ("query-jobs", concluded_job("emucap-save-1", "save")),
+            ("job-dismiss", json!({})),
+            ("query-status", machine(false)),
+            ("xemu-emucap-status", extension(42, false, 0, false)),
+        ]),
+        FakeGdb::empty(),
+        temp.path(),
+    );
+    result(bridge.handle_request(Request::new(100, "save_state", json!({"path":path}))));
+    bridge.qmp.assert_drained();
+    let budget = |command: &str| {
+        bridge
+            .qmp
+            .budgets
+            .iter()
+            .find(|(name, _)| name == command)
+            .map(|(_, budget)| *budget)
+            .unwrap_or_else(|| panic!("{command} did not use an explicit budget"))
+    };
+    assert!(budget("snapshot-save") >= Duration::from_secs(30));
+    assert!(budget("query-jobs") >= Duration::from_secs(5));
 }
 
 #[test]
