@@ -37,6 +37,11 @@ Windows builds use MSVC, preferring Visual Studio 2022, and target x64 on both I
 ARM Windows hosts. The dependency build uses the same target toolchain as PCSX2 and requires native
 Python. Set `EMUCAP_PCSX2_PYTHON` to `python.exe` when it is not on `PATH`.
 
+On Linux, PCSX2 maps guest memory through shared memory. Inside a container, give it a larger
+`/dev/shm` (for example `docker run --shm-size=4g`): with Docker's 64 MiB default the emulator dies
+with SIGBUS in `memReset` before the bridge connects, and launch reports only that the process exited
+before the adapter hello.
+
 ## BIOS and media
 
 PCSX2 needs a BIOS dumped from a console owned by the operator. Set its absolute path before
