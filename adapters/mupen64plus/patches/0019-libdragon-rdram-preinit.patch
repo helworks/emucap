@@ -1,0 +1,42 @@
+emucap: optional pre-initialized RDRAM handoff for libdragon IPL3.
+
+libdragon's open-source IPL3 runs its own Rambus initialization when RI_SELECT reads zero. The
+emulated RDRAM register model does not complete that sequence, so the loader is placed outside
+backed memory and the title never reaches its first vertical interrupt. When
+EMUCAP_N64_RDRAM_PREINIT=1, the HLE PIF boot hands over RI as already configured and publishes
+the 8 MiB size at 0x80000318, which selects IPL3's documented warm path. The value is read once
+per process; without it the boot is unchanged.
+
+--- a/src/device/pif/bootrom_hle.c
++++ b/src/device/pif/bootrom_hle.c
+@@ -31,8 +31,11 @@
+ #include "device/rcp/pi/pi_controller.h"
+ #include "device/rcp/rsp/rsp_core.h"
+ #include "device/rcp/si/si_controller.h"
++#include "device/rcp/ri/ri_controller.h"
+ #include "device/rcp/vi/vi_controller.h"
+ #include "main/rom.h"
++#include <SDL.h>
++#include <string.h>
+
+ static unsigned int get_tv_type(void)
+ {
+@@ -147,5 +150,18 @@
+
+     /* XXX: should prepare execution of IPL3 in DMEM here :
+      * e.g. jump to 0xa4000040 */
++    {
++        static int preinit = -1;
++        if (preinit < 0) {
++            const char *value = SDL_getenv("EMUCAP_N64_RDRAM_PREINIT");
++            preinit = value != NULL && strcmp(value, "1") == 0;
++        }
++        if (preinit) {
++            r4300_write_aligned_word(r4300, R4300_KSEG1 + MM_RI_REGS + 4*RI_MODE_REG, 0x0e, ~UINT32_C(0));
++            r4300_write_aligned_word(r4300, R4300_KSEG1 + MM_RI_REGS + 4*RI_CONFIG_REG, 0x40, ~UINT32_C(0));
++            r4300_write_aligned_word(r4300, R4300_KSEG1 + MM_RI_REGS + 4*RI_SELECT_REG, 0x14, ~UINT32_C(0));
++            r4300_write_aligned_word(r4300, R4300_KSEG1 + 0x318, 0x800000, ~UINT32_C(0));
++        }
++    }
+     *r4300_cp0_last_addr(&r4300->cp0) = 0xa4000040;
+ }

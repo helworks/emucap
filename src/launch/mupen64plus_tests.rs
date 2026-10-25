@@ -146,10 +146,12 @@ fn launch_spec_forwards_renderer_profile_and_frame_boundary() {
     let spec = launch_spec(&launch, temp.path());
     assert_eq!(env_of(&spec, RENDERER_ENV).as_deref(), Some("hle"));
     assert_eq!(env_of(&spec, FRAME_BOUNDARY_ENV).as_deref(), Some("gfx_task"));
+    assert_eq!(env_of(&spec, RDRAM_PREINIT_ENV).as_deref(), Some("0"));
     std::env::set_var(RENDERER_ENV, "lle");
     let spec = launch_spec(&launch, temp.path());
     assert_eq!(env_of(&spec, RENDERER_ENV).as_deref(), Some("lle"));
     assert_eq!(env_of(&spec, FRAME_BOUNDARY_ENV).as_deref(), Some("vi"));
+    assert_eq!(env_of(&spec, RDRAM_PREINIT_ENV).as_deref(), Some("1"));
 }
 
 #[test]

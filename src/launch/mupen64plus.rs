@@ -34,10 +34,13 @@ pub struct LlePlugins {
 
 /// Operator-selected plugin profile. `hle` (default) is the HLE RSP with the Rice renderer and
 /// the graphics-task frame boundary. `lle` loads the cxd4 RSP interpreter and the angrylion-plus
-/// RDP renderer and reports one frame per vertical interrupt, for titles such as libdragon
-/// homebrew that never submit an OSTask graphics task.
+/// RDP renderer, reports one frame per vertical interrupt and boots with pre-initialized RDRAM,
+/// for titles such as libdragon homebrew that never submit an OSTask graphics task.
 pub const RENDERER_ENV: &str = "EMUCAP_N64_RENDERER";
 pub const FRAME_BOUNDARY_ENV: &str = "EMUCAP_N64_FRAME_BOUNDARY";
+/// libdragon's IPL3 cannot complete its own Rambus initialization against the emulated RDRAM
+/// model; the LLE profile hands over pre-initialized RDRAM (core patch 0019).
+pub const RDRAM_PREINIT_ENV: &str = "EMUCAP_N64_RDRAM_PREINIT";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Renderer {
@@ -90,6 +93,13 @@ impl Renderer {
         match self {
             Self::Hle => "gfx_task",
             Self::Lle => "vi",
+        }
+    }
+
+    pub fn rdram_preinit(self) -> &'static str {
+        match self {
+            Self::Hle => "0",
+            Self::Lle => "1",
         }
     }
 }
@@ -305,6 +315,7 @@ pub fn launch_spec(launch: &Launch<'_>, runtime_home: &Path) -> LaunchSpec {
     let mut spec = spec
         .env(RENDERER_ENV, renderer.as_str())
         .env(FRAME_BOUNDARY_ENV, renderer.frame_boundary())
+        .env(RDRAM_PREINIT_ENV, renderer.rdram_preinit())
         .env(
             "EMUCAP_CONTENT",
             launch.content.to_string_lossy().into_owned(),
