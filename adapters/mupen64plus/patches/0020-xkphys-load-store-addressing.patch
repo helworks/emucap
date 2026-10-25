@@ -1,0 +1,233 @@
+emucap: honor XKPHYS addresses in R4300 loads and stores.
+
+libdragon reads PI space (rompak TOC, IO registers) through uncached XKPHYS addresses such as
+0x9000000010001000. The core truncated every effective address to 32 bits, turning these into
+TLB-mapped KUSEG accesses and a fatal TLB exception. Map XKPHYS to the same physical address
+through KSEG1; every other address keeps the existing 32-bit behavior.
+
+--- a/src/device/r4300/r4300_core.h
++++ b/src/device/r4300/r4300_core.h
+@@ -254,4 +254,15 @@
+ 
+ void savestates_load_set_pc(struct r4300_core* r4300, uint32_t pc);
+ 
++/* emucap: CPU load/store effective address. 64-bit XKPHYS addresses (bits 63..62 == 0b10), as
++ * used by libdragon to reach PI space, map to their physical address through KSEG1. Other
++ * addresses keep the 32-bit truncation used by the rest of the core. */
++static osal_inline uint32_t r4300_emucap_lsaddr(int64_t base, int64_t offset)
++{
++    uint64_t address = (uint64_t)(base + offset);
++    if ((address >> 62) == 2 && (address & UINT64_C(0x07FFFFFFE0000000)) == 0)
++        return UINT32_C(0xA0000000) | (uint32_t)(address & UINT32_C(0x1FFFFFFF));
++    return (uint32_t)address;
++}
++
+ #endif
+--- a/src/device/r4300/mips_instructions.def
++++ b/src/device/r4300/mips_instructions.def
+@@ -151,7 +151,7 @@
+ DECLARE_INSTRUCTION(LB)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+     uint32_t value;
+@@ -165,7 +165,7 @@
+ DECLARE_INSTRUCTION(LBU)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+     uint32_t value;
+@@ -179,7 +179,7 @@
+ DECLARE_INSTRUCTION(LH)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+     uint32_t value;
+@@ -193,7 +193,7 @@
+ DECLARE_INSTRUCTION(LHU)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+     uint32_t value;
+@@ -207,7 +207,7 @@
+ DECLARE_INSTRUCTION(LL)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+     uint32_t value;
+@@ -221,7 +221,7 @@
+ DECLARE_INSTRUCTION(LW)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+     uint32_t value;
+@@ -234,7 +234,7 @@
+ DECLARE_INSTRUCTION(LWU)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+ 
+@@ -248,7 +248,7 @@
+ DECLARE_INSTRUCTION(LWL)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+ 
+@@ -265,7 +265,7 @@
+ DECLARE_INSTRUCTION(LWR)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+ 
+@@ -284,7 +284,7 @@
+ DECLARE_INSTRUCTION(LD)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+ 
+@@ -294,7 +294,7 @@
+ DECLARE_INSTRUCTION(LDL)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+ 
+@@ -311,7 +311,7 @@
+ DECLARE_INSTRUCTION(LDR)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+ 
+@@ -332,7 +332,7 @@
+ DECLARE_INSTRUCTION(SB)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+     unsigned int shift = bshift(lsaddr);
+@@ -343,7 +343,7 @@
+ DECLARE_INSTRUCTION(SH)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+     unsigned int shift = hshift(lsaddr);
+@@ -354,7 +354,7 @@
+ DECLARE_INSTRUCTION(SC)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+ 
+@@ -374,7 +374,7 @@
+ DECLARE_INSTRUCTION(SW)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+ 
+@@ -384,7 +384,7 @@
+ DECLARE_INSTRUCTION(SWL)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+ 
+@@ -401,7 +401,7 @@
+ DECLARE_INSTRUCTION(SWR)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+ 
+@@ -416,7 +416,7 @@
+ DECLARE_INSTRUCTION(SD)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+ 
+@@ -426,7 +426,7 @@
+ DECLARE_INSTRUCTION(SDL)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+ 
+@@ -443,7 +443,7 @@
+ DECLARE_INSTRUCTION(SDR)
+ {
+     DECLARE_R4300
+-    const uint32_t lsaddr = (uint32_t) irs32 + (uint32_t) iimmediate;
++    const uint32_t lsaddr = r4300_emucap_lsaddr(irs, iimmediate);
+     int64_t *lsrtp = &irt;
+     ADD_TO_PC(1);
+ 
+@@ -474,14 +474,14 @@
+ DECLARE_INSTRUCTION(ADDI)
+ {
+     DECLARE_R4300
+-    irt = SE32((uint32_t) irs32 + (uint32_t) iimmediate);
++    irt = SE32(r4300_emucap_lsaddr(irs, iimmediate));
+     ADD_TO_PC(1);
+ }
+ 
+ DECLARE_INSTRUCTION(ADDIU)
+ {
+     DECLARE_R4300
+-    irt = SE32((uint32_t) irs32 + (uint32_t) iimmediate);
++    irt = SE32(r4300_emucap_lsaddr(irs, iimmediate));
+     ADD_TO_PC(1);
+ }
+ 
