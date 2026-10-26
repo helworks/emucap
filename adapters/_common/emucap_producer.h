@@ -175,6 +175,17 @@ public:
 	// lets the guest run again (resume or step). Single-threaded hosts leave both as no-ops.
 	virtual void halt() {}
 	virtual void unhalt() {}
+
+	// Self-paced emulators own their frame loop (RPCS3, Cemu): the producer serves requests on
+	// its own service thread instead of at boundary() calls, halt()/unhalt() pause and resume the
+	// guest, and advance() runs exactly `frames` frames from a halted guest and leaves it halted.
+	virtual bool self_paced() const { return false; }
+	virtual bool advance(uint64_t /*frames*/, int64_t /*deadline_ms*/, uint64_t& completed, std::string& error) {
+		completed = 0;
+		error = "advance is not implemented";
+		return false;
+	}
+	virtual uint64_t frame_count() const { return 0; }
 };
 
 // ---- producer ---------------------------------------------------------------------------------
@@ -216,6 +227,7 @@ private:
 	};
 
 	void transport_main();
+	void service_main();
 	bool serve_connection(int fd);
 	std::string local_reply(uint64_t id, const std::string& method, const Json& params, bool& handled);
 	void park();
@@ -236,6 +248,7 @@ private:
 
 	Backend& backend_;
 	std::thread transport_;
+	std::thread service_;
 	std::atomic<bool> quit_{false};
 	std::atomic<bool> connected_{false};
 	std::atomic<bool> frozen_{false};

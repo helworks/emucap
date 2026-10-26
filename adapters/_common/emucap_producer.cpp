@@ -545,13 +545,40 @@ bool Producer::start() {
 	backend_.cpu_state(cpu_targets_);
 	started_ = true;
 	transport_ = std::thread([this] { transport_main(); });
+	if (backend_.self_paced()) {
+		if (start_frozen_) {
+			backend_.halt();
+			halted_ = true;
+		}
+		service_ = std::thread([this] { service_main(); });
+	}
 	return true;
+}
+
+// Self-paced hosts: execute each request as it arrives; the emulator runs its own frame loop.
+void Producer::service_main() {
+	while (!quit_) {
+		std::shared_ptr<Job> job;
+		{
+			std::unique_lock<std::mutex> lock(queue_mutex_);
+			if (queue_.empty()) {
+				queue_cv_.wait_for(lock, std::chrono::milliseconds(100));
+				continue;
+			}
+			job = queue_.front();
+			queue_.pop_front();
+		}
+		frame_ = backend_.frame_count();
+		execute(job);
+		frame_ = backend_.frame_count();
+	}
 }
 
 void Producer::stop() {
 	quit_ = true;
 	queue_cv_.notify_all();
 	if (transport_.joinable()) transport_.join();
+	if (service_.joinable()) service_.join();
 }
 
 std::string Producer::ok(uint64_t id, const Json& result) const {
@@ -720,6 +747,7 @@ Json Producer::rom_info() {
 
 std::string Producer::local_reply(uint64_t id, const std::string& method, const Json&, bool& handled) {
 	handled = true;
+	if (backend_.self_paced()) frame_ = backend_.frame_count();
 	if (method == "hello") return ok(id, hello());
 	if (method == "status") return ok(id, status());
 	if (method == "get_rom_info") return ok(id, rom_info());
@@ -1051,6 +1079,10 @@ std::string Producer::run_job(const std::shared_ptr<Job>& job) {
 	}
 	if (method == "resume") {
 		frozen_ = false;
+		if (backend_.self_paced() && halted_) {
+			backend_.unhalt();
+			halted_ = false;
+		}
 		Json r = Json::object();
 		r.set("status", Json("completed"));
 		r.set("state", Json("running"));
@@ -1066,6 +1098,33 @@ std::string Producer::run_job(const std::shared_ptr<Job>& job) {
 		if (count < 1 || count > kMaxSyncAdvance)
 			return err(id, "bad_params", "frame count must be in 1..=" + std::to_string(kMaxSyncAdvance) + "; split the request");
 		step_was_running_ = !frozen_.load();
+		if (backend_.self_paced()) {
+			if (!halted_) {
+				backend_.halt();
+				halted_ = true;
+			}
+			const uint64_t before = backend_.frame_count();
+			uint64_t completed = 0;
+			std::string error;
+			const bool ok_advance = backend_.advance(count, now_ms() + kAdvanceBudgetMs, completed, error);
+			frozen_ = true;
+			stop_epoch_++;
+			frame_ = backend_.frame_count();
+			if (!ok_advance && completed == 0) return err(id, "emulator_error", error);
+			Json r = Json::object();
+			r.set("status", Json(completed == count ? "completed" : "interrupted"));
+			if (completed != count) r.set("reason", Json(error.empty() ? "host_deadline" : error));
+			r.set("unit", Json("frames"));
+			r.set("requested", Json((unsigned long long)count));
+			r.set("completed", Json((unsigned long long)completed));
+			r.set("count", Json((unsigned long long)completed));
+			r.set("frame_before", Json((unsigned long long)before));
+			r.set("frame", Json((unsigned long long)frame_.load()));
+			r.set("state", Json("frozen"));
+			r.set("was_running", Json(step_was_running_));
+			r.set("boundary", Json("frame_boundary"));
+			return ok(id, r);
+		}
 		frozen_ = true;
 		step_job_ = job;
 		step_requested_ = count;
