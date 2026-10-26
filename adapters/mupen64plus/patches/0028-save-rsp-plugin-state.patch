@@ -1,0 +1,134 @@
+emucap: carry the RSP task lock and the RSP plugin registers in savestates.
+
+Patch 0023 keeps a yielded RSP task alive (rsp_task_locked plus a pending SP event), but loads
+cleared the lock, and the LLE RSP plugin's registers are not in the savestate at all. A load
+therefore resumed libdragon's rspq microcode from the registers the process last held, and the
+session that continued after save_state ran differently from every load of the same file. The
+native extension block now holds an ECRSPST1 record (before the interrupt-jitter record) with the
+task lock and, when the RSP plugin exports them (emucap's cxd4 patch), its registers.
+
+--- a/src/main/savestates.c
++++ b/src/main/savestates.c
+@@ -53,6 +53,19 @@
+ #include "util.h"
+ #include "workqueue.h"
+ 
++/* emucap: RSP record in the native extension block, just before the jitter record.
++ * ECRSPST1 + LE32 version 1 + LE32 rsp_task_locked + LE32 plugin bytes + plugin state. */
++#define EMUCAP_RSP_RECORD_SIZE 1792
++#define EMUCAP_RSP_RECORD_HEADER 20
++static uint32_t emucap_read32(const unsigned char* p)
++{
++    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
++}
++static void emucap_write32(unsigned char* p, uint32_t x)
++{
++    for (unsigned i = 0; i < 4; ++i) p[i] = (unsigned char)(x >> (8 * i));
++}
++
+ enum { GB_CART_FINGERPRINT_SIZE = 0x1c };
+ enum { GB_CART_FINGERPRINT_OFFSET = 0x134 };
+ 
+@@ -1012,6 +1025,24 @@
+     dev->sp.rsp_task_locked = 0;
+     dev->r4300.cp0.interrupt_unsafe_state = 0;
+ 
++    /* emucap: restore a yielded RSP task and the RSP plugin registers it resumes from. */
++    if (version >= 0x00010200) {
++        const unsigned char* rsp_record = data_0001_0200 + sizeof(data_0001_0200)
++            - INTERRUPT_JITTER_RECORD_SIZE - EMUCAP_RSP_RECORD_SIZE;
++        if (memcmp(rsp_record, "ECRSPST1", 8) == 0 && emucap_read32(rsp_record + 8) == 1) {
++            uint32_t locked = emucap_read32(rsp_record + 12);
++            uint32_t bytes = emucap_read32(rsp_record + 16);
++            if (locked) {
++                dev->sp.rsp_task_locked = 1;
++                dev->r4300.cp0.interrupt_unsafe_state |= INTR_UNSAFE_RSP;
++            }
++            if (bytes && bytes <= EMUCAP_RSP_RECORD_SIZE - EMUCAP_RSP_RECORD_HEADER &&
++                emucap_rsp_state_load != NULL && emucap_rsp_state_size() == bytes) {
++                emucap_rsp_state_load(rsp_record + EMUCAP_RSP_RECORD_HEADER, bytes);
++            }
++        }
++    }
++
+     *r4300_cp0_last_addr(&dev->r4300.cp0) = *r4300_pc(&dev->r4300);
+ 
+     dev->r4300.interrupt_jitter_state = restored_jitter;
+@@ -2020,7 +2051,22 @@
+ 
+     /* Never overlap the extension's existing device fields or publish an invalid state. */
+     unsigned char *jitter_record = (unsigned char *)save->data + save->size - INTERRUPT_JITTER_RECORD_SIZE;
+-    if ((unsigned char *)curr > jitter_record || !interrupt_jitter_encode(
++    /* emucap: the RSP record sits right before the jitter record. */
++    unsigned char *rsp_record = jitter_record - EMUCAP_RSP_RECORD_SIZE;
++    int rsp_ok = (unsigned char *)curr <= rsp_record;
++    if (rsp_ok) {
++        unsigned int bytes = emucap_rsp_state_size != NULL ? emucap_rsp_state_size() : 0;
++        memset(rsp_record, 0, EMUCAP_RSP_RECORD_SIZE);
++        memcpy(rsp_record, "ECRSPST1", 8);
++        emucap_write32(rsp_record + 8, 1);
++        emucap_write32(rsp_record + 12, dev->sp.rsp_task_locked ? 1u : 0u);
++        if (bytes > EMUCAP_RSP_RECORD_SIZE - EMUCAP_RSP_RECORD_HEADER ||
++            (bytes && !emucap_rsp_state_save(rsp_record + EMUCAP_RSP_RECORD_HEADER, bytes)))
++            rsp_ok = 0;
++        else
++            emucap_write32(rsp_record + 16, bytes);
++    }
++    if (!rsp_ok || !interrupt_jitter_encode(
+             jitter_record, INTERRUPT_JITTER_RECORD_SIZE, dev->r4300.interrupt_jitter_state)) {
+         free(save->data);
+         free(save->filepath);
+--- a/src/plugin/plugin.c
++++ b/src/plugin/plugin.c
+@@ -445,10 +445,17 @@
+     return M64ERR_SUCCESS;
+ }
+ 
++ptr_EmucapRspStateSize emucap_rsp_state_size = NULL;
++ptr_EmucapRspStateSave emucap_rsp_state_save = NULL;
++ptr_EmucapRspStateLoad emucap_rsp_state_load = NULL;
++
+ static void plugin_disconnect_rsp(void)
+ {
+     rsp = dummy_rsp;
+     l_RspAttached = 0;
++    emucap_rsp_state_size = NULL;
++    emucap_rsp_state_save = NULL;
++    emucap_rsp_state_load = NULL;
+ }
+ 
+ static m64p_error plugin_connect_rsp(m64p_dynlib_handle plugin_handle)
+@@ -481,6 +488,17 @@
+             return M64ERR_INCOMPATIBLE;
+         }
+ 
++        /* emucap: all three or none. */
++        emucap_rsp_state_size = (ptr_EmucapRspStateSize)osal_dynlib_getproc(plugin_handle, "EmucapRspStateSize");
++        emucap_rsp_state_save = (ptr_EmucapRspStateSave)osal_dynlib_getproc(plugin_handle, "EmucapRspStateSave");
++        emucap_rsp_state_load = (ptr_EmucapRspStateLoad)osal_dynlib_getproc(plugin_handle, "EmucapRspStateLoad");
++        if (!emucap_rsp_state_size || !emucap_rsp_state_save || !emucap_rsp_state_load)
++        {
++            emucap_rsp_state_size = NULL;
++            emucap_rsp_state_save = NULL;
++            emucap_rsp_state_load = NULL;
++        }
++
+         l_RspAttached = 1;
+     }
+     else
+--- a/src/plugin/plugin.h
++++ b/src/plugin/plugin.h
+@@ -121,5 +121,13 @@
+ 
+ extern rsp_plugin_functions rsp;
+ 
++/* emucap: optional RSP register state export of the emucap-patched cxd4 plugin. */
++typedef unsigned int (*ptr_EmucapRspStateSize)(void);
++typedef int (*ptr_EmucapRspStateSave)(unsigned char* out, unsigned int size);
++typedef int (*ptr_EmucapRspStateLoad)(const unsigned char* in, unsigned int size);
++extern ptr_EmucapRspStateSize emucap_rsp_state_size;
++extern ptr_EmucapRspStateSave emucap_rsp_state_save;
++extern ptr_EmucapRspStateLoad emucap_rsp_state_load;
++
+ #endif
+ 

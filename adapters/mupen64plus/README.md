@@ -107,6 +107,15 @@ mode, a yielded RSP that keeps running and delivers its SET_INTR interrupts (rsp
 RDP interrupts only on SYNC_FULL, interrupt checks that respect EXL/IE (libdragon's nested
 COP1-unusable exception inside interrupt handlers), and bounded PI/RDRAM register reads.
 
+Savestates carry the RSP as well (core patch 0028 plus `patches/cxd4/0001-export-rsp-state.patch`,
+digest `M64P_CXD4_PATCHSET_SHA256`). libdragon's rspq microcode yields without halting and resumes
+from the cxd4 interpreter's registers, which upstream savestates do not hold, and loads cleared
+the yielded task's lock. The native extension block now stores an `ECRSPST1` record (task lock and
+the plugin's scalar/vector registers, accumulators, flags and divide unit) right before the
+interrupt-jitter record. With it the session that continues after `save_state` and every load of
+that file match in registers, screenshots and all 8 MiB of RDRAM; before, the live run diverged
+within one frame. States written by the HLE profile carry the lock only.
+
 ### Controlled start (`start_frozen`)
 
 `launch(start_frozen:true)` adopts the debugger's initial pause instead of releasing the guest:

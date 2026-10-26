@@ -1,0 +1,131 @@
+emucap: export the RSP interpreter's register state for savestates.
+
+cxd4 keeps the scalar and vector register files, accumulators, flag registers, divide unit and
+branch state in plugin globals. Mupen64Plus savestates do not carry them, and libdragon's rspq
+microcode yields without halting and resumes from those registers, so a load continued the RSP
+from whatever registers the process last held. EmucapRspStateSize/Save/Load let the emucap core
+store them in the savestate's extension block.
+
+--- a/module.c
++++ b/module.c
+@@ -55,6 +55,79 @@
+ 
+ RSP_INFO RSP_INFO_NAME;
+ 
++/*
++ * emucap: RSP register state for savestates. The interpreter keeps the scalar and vector
++ * register files, accumulators, flags and divide unit in plugin globals that a
++ * Mupen64Plus savestate does not carry; a microcode that yields without halting (libdragon's
++ * rspq) resumes from them, so a load must restore them as well.
++ */
++#include "vu/vu.h"
++extern int emucap_su_temp_pc(int* value, int store);
++extern void emucap_divide_state(s32* values, int store);
++#define EMUCAP_RSP_STATE_VERSION 1u
++static unsigned int emucap_rsp_state_bytes(void)
++{
++    unsigned int size = 4 + NUMBER_OF_SCALAR_REGISTERS * sizeof(u32) + sizeof(VR) + sizeof(VACC)
++        + sizeof(cf_ne) + sizeof(cf_co) + sizeof(cf_clip) + sizeof(cf_comp) + sizeof(cf_vce)
++        + 3 * sizeof(s32) + sizeof(int) + sizeof(int);
++#ifdef WAIT_FOR_CPU_HOST
++    size += NUMBER_OF_SCALAR_REGISTERS * sizeof(short);
++#endif
++    return size;
++}
++#define EMUCAP_COPY(field, size) do { \
++        if (store) memcpy((field), p, (size)); else memcpy(p, (field), (size)); \
++        p += (size); \
++    } while (0)
++static void emucap_rsp_state_copy(unsigned char* p, int store)
++{
++    s32 divide[3];
++    int pc;
++    unsigned int version = EMUCAP_RSP_STATE_VERSION;
++    EMUCAP_COPY(&version, 4);
++    EMUCAP_COPY(SR, NUMBER_OF_SCALAR_REGISTERS * sizeof(u32));
++    EMUCAP_COPY(VR, sizeof(VR));
++    EMUCAP_COPY(VACC, sizeof(VACC));
++    EMUCAP_COPY(cf_ne, sizeof(cf_ne));
++    EMUCAP_COPY(cf_co, sizeof(cf_co));
++    EMUCAP_COPY(cf_clip, sizeof(cf_clip));
++    EMUCAP_COPY(cf_comp, sizeof(cf_comp));
++    EMUCAP_COPY(cf_vce, sizeof(cf_vce));
++    if (!store) emucap_divide_state(divide, 0);
++    EMUCAP_COPY(divide, sizeof(divide));
++    if (store) emucap_divide_state(divide, 1);
++    if (!store) emucap_su_temp_pc(&pc, 0);
++    EMUCAP_COPY(&pc, sizeof(pc));
++    if (store) emucap_su_temp_pc(&pc, 1);
++    EMUCAP_COPY(&MF_SP_STATUS_TIMEOUT, sizeof(int));
++#ifdef WAIT_FOR_CPU_HOST
++    EMUCAP_COPY(MFC0_count, NUMBER_OF_SCALAR_REGISTERS * sizeof(short));
++#endif
++}
++#undef EMUCAP_COPY
++EXPORT unsigned int CALL EmucapRspStateSize(void)
++{
++    return emucap_rsp_state_bytes();
++}
++EXPORT int CALL EmucapRspStateSave(unsigned char* out, unsigned int size)
++{
++    if (out == NULL || size != emucap_rsp_state_bytes())
++        return 0;
++    emucap_rsp_state_copy(out, 0);
++    return 1;
++}
++EXPORT int CALL EmucapRspStateLoad(const unsigned char* in, unsigned int size)
++{
++    unsigned int version;
++    if (in == NULL || size != emucap_rsp_state_bytes())
++        return 0;
++    memcpy(&version, in, 4);
++    if (version != EMUCAP_RSP_STATE_VERSION)
++        return 0;
++    emucap_rsp_state_copy((unsigned char*)in, 1);
++    return 1;
++}
++
+ #define RSP_CXD4_VERSION 0x0101
+ 
+ #if defined(M64P_PLUGIN_API)
+--- a/su.c
++++ b/su.c
+@@ -35,6 +35,15 @@
+ unsigned long su_max_address = 0x007FFFFFul;
+ 
+ static int temp_PC;
++/* emucap: the pending branch target belongs to the RSP state a savestate carries. */
++int emucap_su_temp_pc(int* value, int store)
++{
++    if (store)
++        temp_PC = *value;
++    else
++        *value = temp_PC;
++    return 0;
++}
+ 
+ NOINLINE void res_S(void)
+ {
+--- a/vu/divide.c
++++ b/vu/divide.c
+@@ -39,6 +39,20 @@
+  */
+ static int DPH = SP_DIV_PRECISION_SINGLE;
+ 
++/* emucap: the divide unit's buffered operands belong to the RSP state a savestate carries. */
++void emucap_divide_state(s32* values, int store)
++{
++    if (store) {
++        DivIn = values[0];
++        DivOut = values[1];
++        DPH = values[2];
++    } else {
++        values[0] = DivIn;
++        values[1] = DivOut;
++        values[2] = DPH;
++    }
++}
++
+ /*
+  * 11-bit vector divide result look-up table
+  * Thanks to MAME / MESS for organizing.

@@ -95,6 +95,7 @@ PATCHES=(
   "$HERE/patches/0025-masked-interrupt-check.patch"
   "$HERE/patches/0026-controlled-start-mempak-seed.patch"
   "$HERE/patches/0027-bound-pi-rdram-register-access.patch"
+  "$HERE/patches/0028-save-rsp-plugin-state.patch"
 )
 if command -v shasum >/dev/null 2>&1; then
   ACTUAL_PATCHSET_SHA256="$(for source_patch in "${PATCHES[@]}"; do cat "$source_patch"; done | shasum -a 256 | awk '{print $1}')"
@@ -142,6 +143,8 @@ PATCHED_MEMBERS=(
   "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/r4300/cached_interp.c"
   "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/r4300/mips_instructions.def"
   "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/pif/bootrom_hle.c"
+  "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/plugin/plugin.h"
+  "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/plugin/plugin.c"
   "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/r4300/cp0.c"
   "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/rcp/pi/pi_controller.c"
 )
@@ -251,6 +254,16 @@ LLE_BUILT=false
 if [ "${EMUCAP_M64P_LLE:-1}" != "0" ]; then
   CXD4_SRC="$WORK/mupen64plus-rsp-cxd4"
   fetch_pinned "$M64P_CXD4_REPO" "$M64P_CXD4_COMMIT" "$CXD4_SRC"
+  # emucap: the RSP register state export that savestates carry (patch 0028).
+  CXD4_PATCHES=("$HERE"/patches/cxd4/*.patch)
+  ACTUAL_CXD4_PATCHSET_SHA256="$(cat "${CXD4_PATCHES[@]}" | { shasum -a 256 2>/dev/null || sha256sum; } | awk '{print $1}')"
+  if [ "$ACTUAL_CXD4_PATCHSET_SHA256" != "$M64P_CXD4_PATCHSET_SHA256" ]; then
+    echo "ERROR: cxd4 patch stack does not match upstream.lock" >&2
+    exit 1
+  fi
+  for cxd4_patch in "${CXD4_PATCHES[@]}"; do
+    patch -d "$CXD4_SRC" -p1 --forward --quiet <"$cxd4_patch"
+  done
   make -C "$CXD4_SRC/projects/unix" all APIDIR="$CORE_SRC/src/api" -j "$JOBS"
   CXD4_LIB="$(find "$CXD4_SRC/projects/unix" -maxdepth 1 -name "mupen64plus-rsp-cxd4*.$LIB_EXT" -print -quit)"
   [ -n "$CXD4_LIB" ] || { echo "ERROR: cxd4 RSP plugin was not produced" >&2; exit 1; }
