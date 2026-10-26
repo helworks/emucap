@@ -498,7 +498,8 @@ pub(crate) fn make_launch(
         .unwrap_or(false)
     {
         record_token_cleanup_error(&mut outcome, abort_staged_reclaim(link, direct_reclaim));
-        let _ = prepared.abort();
+        let failure_logs = prepared.abort_preserving_logs();
+        annotate_failure_logs(&mut outcome, failure_logs);
         return outcome;
     }
 
@@ -515,13 +516,14 @@ pub(crate) fn make_launch(
             let _ = emucap::launch::terminate_detached(bridge_pid);
         }
         let token_cleanup_error = abort_staged_reclaim(link, direct_reclaim);
-        let _ = prepared.abort();
+        let failure_logs = prepared.abort_preserving_logs();
         let mut failure = serde_json::json!({
             "launched": false,
             "reason": "launcher returned success without an emulator PID",
             "launcher_outcome": outcome,
         });
         record_token_cleanup_error(&mut failure, token_cleanup_error);
+        annotate_failure_logs(&mut failure, failure_logs);
         return failure;
     };
     let backend_endpoint = backend_endpoint_from_launch(&outcome);
@@ -556,7 +558,7 @@ pub(crate) fn make_launch(
         }
         let _ = emucap::launch::terminate_detached(emulator_pid);
         let token_cleanup_error = abort_staged_reclaim(link, direct_reclaim);
-        let _ = prepared.abort();
+        let failure_logs = prepared.abort_preserving_logs();
         let mut failure = serde_json::json!({
             "launched": false,
             "reason": "a launch process was not verifiably alive before the runtime generation became current",
@@ -565,6 +567,7 @@ pub(crate) fn make_launch(
             "launcher_outcome": outcome,
         });
         record_token_cleanup_error(&mut failure, token_cleanup_error);
+        annotate_failure_logs(&mut failure, failure_logs);
         return failure;
     }
     let ready_status = match wait_for_adapter_ready(
@@ -595,7 +598,7 @@ pub(crate) fn make_launch(
         Err(error) => {
             let _ = manifest.terminate_owned_processes();
             let token_cleanup_error = abort_staged_reclaim(link, direct_reclaim);
-            let _ = prepared.abort();
+            let failure_logs = prepared.abort_preserving_logs();
             let mut failure = serde_json::json!({
                 "launched": false,
                 "reason": "adapter did not become ready",
@@ -603,6 +606,7 @@ pub(crate) fn make_launch(
                 "launcher_outcome": outcome,
             });
             record_token_cleanup_error(&mut failure, token_cleanup_error);
+            annotate_failure_logs(&mut failure, failure_logs);
             return failure;
         }
     };
@@ -615,7 +619,7 @@ pub(crate) fn make_launch(
     ) {
         let _ = manifest.terminate_owned_processes();
         let token_cleanup_error = abort_staged_reclaim(link, direct_reclaim);
-        let _ = prepared.abort();
+        let failure_logs = prepared.abort_preserving_logs();
         let mut failure = serde_json::json!({
             "launched": false,
             "reason": reason,
@@ -623,6 +627,7 @@ pub(crate) fn make_launch(
             "launcher_outcome": outcome,
         });
         record_token_cleanup_error(&mut failure, token_cleanup_error);
+        annotate_failure_logs(&mut failure, failure_logs);
         return failure;
     }
     if let Some(reclaim_token) = direct_reclaim {
@@ -631,24 +636,26 @@ pub(crate) fn make_launch(
             Ok(false) => {
                 let _ = manifest.terminate_owned_processes();
                 let token_cleanup_error = abort_staged_reclaim(link, direct_reclaim);
-                let _ = prepared.abort();
+                let failure_logs = prepared.abort_preserving_logs();
                 let mut failure = serde_json::json!({
                     "launched": false,
                     "reason": "direct link could not commit the ready launch token",
                 });
                 record_token_cleanup_error(&mut failure, token_cleanup_error);
+                annotate_failure_logs(&mut failure, failure_logs);
                 return failure;
             }
             Err(error) => {
                 let _ = manifest.terminate_owned_processes();
                 let token_cleanup_error = abort_staged_reclaim(link, direct_reclaim);
-                let _ = prepared.abort();
+                let failure_logs = prepared.abort_preserving_logs();
                 let mut failure = serde_json::json!({
                     "launched": false,
                     "reason": "failed to commit the ready launch token",
                     "error": error.to_string(),
                 });
                 record_token_cleanup_error(&mut failure, token_cleanup_error);
+                annotate_failure_logs(&mut failure, failure_logs);
                 return failure;
             }
         }
@@ -659,13 +666,14 @@ pub(crate) fn make_launch(
             .as_deref()
             .and_then(|old| link.replace_reclaim_token(old).err())
             .map(|error| error.to_string());
-        let _ = prepared.abort();
+        let failure_logs = prepared.abort_preserving_logs();
         let mut failure = serde_json::json!({
             "launched": false,
             "reason": "failed to publish runtime current generation",
             "error": e.to_string(),
         });
         record_token_cleanup_error(&mut failure, token_cleanup_error);
+        annotate_failure_logs(&mut failure, failure_logs);
         return failure;
     }
     if let Some(obj) = outcome.as_object_mut() {
@@ -688,6 +696,24 @@ pub(crate) fn make_launch(
         );
     }
     outcome
+}
+
+/// Name the emulator logs an aborted launch generation left behind, or why they were lost.
+fn annotate_failure_logs(
+    failure: &mut serde_json::Value,
+    logs: std::io::Result<emucap::live::runtime::FailureLogs>,
+) {
+    match logs {
+        Ok(logs) => logs.annotate(failure),
+        Err(error) => {
+            if let Some(object) = failure.as_object_mut() {
+                object.insert(
+                    "generation_cleanup_error".into(),
+                    serde_json::json!(error.to_string()),
+                );
+            }
+        }
+    }
 }
 
 fn abort_staged_reclaim(

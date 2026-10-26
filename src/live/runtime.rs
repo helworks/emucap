@@ -9,8 +9,13 @@ use std::process::Command;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+mod failure_logs;
 mod lookup;
 mod termination;
+pub use failure_logs::{
+    FailureLogs, PreservedLog, FAILED_LAUNCHES_DIR, FAILURE_LOG_TAIL_BYTES,
+    MAX_RETAINED_FAILED_LAUNCHES,
+};
 pub use termination::{
     GenerationTermination, ProcessTermination, TerminationRecord, TerminationState,
 };
@@ -639,6 +644,12 @@ impl PreparedGeneration {
     }
 
     pub fn abort(&self) -> io::Result<()> {
+        self.abort_preserving_logs().map(|_| ())
+    }
+
+    /// Remove this never-published generation, first moving its emulator logs to
+    /// `failed-launches/<launch_id>/` so the launch failure can name them.
+    pub fn abort_preserving_logs(&self) -> io::Result<FailureLogs> {
         if self
             .store
             .read_current(self.port)?
@@ -649,7 +660,9 @@ impl PreparedGeneration {
                 "cannot abort the current runtime generation",
             ));
         }
-        remove_path(&self.store.generation_dir(self.port, &self.launch_id))
+        let logs = self.store.preserve_failure_logs(self.port, &self.launch_id);
+        remove_path(&self.store.generation_dir(self.port, &self.launch_id))?;
+        Ok(logs)
     }
 }
 

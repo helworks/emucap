@@ -11,6 +11,11 @@ Release compatibility is defined in [COMPATIBILITY.md](COMPATIBILITY.md).
   `play_tape`, and `play_tape` on another backend, are `bad_params`.
 
 ### Fixed
+- Keep the emulator logs of a failed launch. The aborted generation directory is still removed,
+  but its `*.log` files (and `adapter-failure.json`) first move to
+  `<emu home>/sessions/<port>/failed-launches/<launch_id>/`; the newest 8 failed launches per port
+  are kept. The launch failure names them in `failure_logs`, `emulator_log` and
+  `emulator_log_tail` (the last 4 KiB).
 - Boot a PPSSPP PBP/ELF in place from a `PSP/GAME/<NAME>/` directory. PPSSPP resolves such content
   on the memory stick, so the launcher installs the game directory into the generation's isolated
   memory stick and boots that copy.
