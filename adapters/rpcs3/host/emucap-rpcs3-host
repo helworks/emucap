@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# emucap-rpcs3-host: run the emucap-patched RPCS3 with a generation-owned profile.
+#
+#   emucap-rpcs3-host --rom <EBOOT.BIN|.self|.elf> [--display]
+#
+# RPCS3 reads its profile from $XDG_CONFIG_HOME/rpcs3. The wrapper points XDG_* at the launch
+# generation, links the installed firmware (dev_flash) from EMUCAP_RPCS3_FIRMWARE (a directory
+# holding dev_flash, created once with --install-firmware), and writes the emucap config: Write
+# Color Buffers on (the producer reads the flipped buffer from RSX memory), no hints, exit when the
+# guest exits. It needs an X display (Xvfb works); RPCS3's --headless mode renders nothing.
+#
+#   emucap-rpcs3-host --install-firmware <PS3UPDAT.PUP> <firmware-dir>
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+RPCS3="${EMUCAP_RPCS3_EXE:-$HERE/rpcs3}"
+
+if [ "${1:-}" = "--install-firmware" ]; then
+  PUP="$2"; DEST="$3"
+  mkdir -p "$DEST/config"
+  # RPCS3 v0.0.42 can abort during process teardown after a successful install; the result is
+  # judged by the installed tree, not the exit status.
+  XDG_CONFIG_HOME="$DEST/config" XDG_CACHE_HOME="$DEST/cache" "$RPCS3" --headless --installfw "$PUP" || true
+  [ -d "$DEST/config/rpcs3/dev_flash/sys" ] || { echo "firmware install failed" >&2; exit 1; }
+  rm -rf "$DEST/dev_flash"
+  mv "$DEST/config/rpcs3/dev_flash" "$DEST/dev_flash"
+  echo "installed firmware into $DEST/dev_flash"
+  exit 0
+fi
+
+CONTENT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rom|--path) CONTENT="$2"; shift 2 ;;
+    --display) shift ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$CONTENT" ] || { echo "--rom is required" >&2; exit 2; }
+HOME_DIR="${EMUCAP_GENERATION_HOME:-$PWD}"
+FW="${EMUCAP_RPCS3_FIRMWARE:-}"
+[ -n "$FW" ] && [ -d "$FW/dev_flash" ] || {
+  echo "EMUCAP_RPCS3_FIRMWARE must name a directory holding dev_flash (see --install-firmware)" >&2
+  exit 1
+}
+
+export XDG_CONFIG_HOME="$HOME_DIR/config" XDG_CACHE_HOME="$HOME_DIR/cache" XDG_DATA_HOME="$HOME_DIR/data"
+CFG="$XDG_CONFIG_HOME/rpcs3"
+mkdir -p "$CFG" "$XDG_CACHE_HOME" "$XDG_DATA_HOME"
+[ -e "$CFG/dev_flash" ] || ln -s "$FW/dev_flash" "$CFG/dev_flash"
+# A shared PPU/SPU cache keeps LLVM compiles across generations (EMUCAP_RPCS3_CACHE).
+if [ -n "${EMUCAP_RPCS3_CACHE:-}" ]; then
+  mkdir -p "$EMUCAP_RPCS3_CACHE" "$XDG_CACHE_HOME/rpcs3"
+  [ -e "$XDG_CACHE_HOME/rpcs3/cache" ] || ln -s "$EMUCAP_RPCS3_CACHE" "$XDG_CACHE_HOME/rpcs3/cache"
+fi
+# No first-run welcome box or exit confirmations in a managed generation.
+mkdir -p "$CFG/GuiConfigs"
+cat >"$CFG/GuiConfigs/CurrentSettings.ini" <<EOF
+[main_window]
+infoBoxEnabledWelcome=false
+confirmationBoxExitGame=false
+infoBoxEnabledInstallPUP=false
+infoBoxEnabledInstallPKG=false
+EOF
+cat >"$HOME_DIR/emucap-rpcs3.yml" <<EOF
+Core:
+  PPU Decoder: ${EMUCAP_RPCS3_PPU_DECODER:-Recompiler (LLVM)}
+  SPU Decoder: ${EMUCAP_RPCS3_SPU_DECODER:-Recompiler (LLVM)}
+Video:
+  Renderer: ${EMUCAP_RPCS3_RENDERER:-Vulkan}
+  Write Color Buffers: true
+  VSync: false
+Audio:
+  Renderer: "Null"
+Miscellaneous:
+  Exit RPCS3 when process finishes: true
+  Start games in fullscreen mode: false
+  Show shader compilation hint: false
+  Show PPU compilation hint: false
+  Automatically start games after boot: true
+  Play music during boot sequence: false
+EOF
+cd "$HOME_DIR"
+exec "$RPCS3" --no-gui --config "$HOME_DIR/emucap-rpcs3.yml" "$CONTENT"

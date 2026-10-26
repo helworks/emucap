@@ -1,0 +1,3 @@
+RPCS3_REPO=https://github.com/RPCS3/rpcs3.git
+RPCS3_TAG="v0.0.42-338-g2d103407f (Windows build v0.0.42-20013)"
+RPCS3_COMMIT=2d103407f8715a4feff64012bd2d195878965822
