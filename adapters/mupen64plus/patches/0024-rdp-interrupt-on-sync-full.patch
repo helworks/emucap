@@ -1,0 +1,59 @@
+emucap: raise the RDP interrupt only for SYNC_FULL in the LLE profile.
+
+Mupen64Plus raises MI_INTR_DP on every CPU write to DPC_END. libdragon's rspq_init writes an
+empty DP_START/DP_END range, so rdpq_init's set_DP_interrupt(1) took an interrupt without
+SIG_RDPSYNCFULL and asserted "Unexpected RDP interrupt". With EMUCAP_N64_RENDERER=lle the
+angrylion renderer sets MI_INTR_DP itself on SYNC_FULL, so only that is signalled; an interrupt
+it sets while the RSP feeds it is checked when the RSP task returns. Other profiles are unchanged.
+
+--- a/src/device/rcp/rdp/rdp_core.c
++++ b/src/device/rcp/rdp/rdp_core.c
+@@ -28,6 +28,21 @@
+ #include "device/rcp/rsp/rsp_core.h"
+ #include "plugin/plugin.h"
+ 
++#include <SDL.h>
++#include <string.h>
++
++/* emucap: the angrylion renderer of the LLE profile raises MI_INTR_DP itself when it executes
++ * SYNC_FULL. The value is fixed for the process and read once. */
++static int emucap_rdp_reports_sync_full(void)
++{
++    static int cached = -1;
++    if (cached < 0) {
++        const char *renderer = SDL_getenv("EMUCAP_N64_RENDERER");
++        cached = renderer != NULL && strcmp(renderer, "lle") == 0;
++    }
++    return cached;
++}
++
+ static void update_dpc_status(struct rdp_core* dp, uint32_t w)
+ {
+     /* clear / set xbus_dmem_dma */
+@@ -117,7 +132,11 @@
+         unprotect_framebuffers(&dp->fb);
+         gfx.processRDPList();
+         protect_framebuffers(&dp->fb);
+-        signal_rcp_interrupt(dp->mi, MI_INTR_DP);
++        /* emucap: the RDP interrupts only on SYNC_FULL. With a renderer that reports it, do not
++         * raise one for every DPC_END write (libdragon's rspq_init writes an empty range and its
++         * DP handler asserts on an interrupt without SYNC_FULL). */
++        if (!emucap_rdp_reports_sync_full() || (dp->mi->regs[MI_INTR_REG] & MI_INTR_DP))
++            signal_rcp_interrupt(dp->mi, MI_INTR_DP);
+         break;
+     }
+ }
+--- a/src/device/rcp/rsp/rsp_core.c
++++ b/src/device/rcp/rsp/rsp_core.c
+@@ -388,6 +388,11 @@
+         rsp.doRspCycles(0xffffffff);
+         sp->regs2[SP_PC_REG] |= save_pc;
+ 
++        /* emucap: an LLE renderer only sets MI_INTR_DP when the RSP feeds it SYNC_FULL; let the
++         * CPU see that interrupt now rather than at the next unrelated interrupt check. */
++        if (sp->mi->regs[MI_INTR_REG] & MI_INTR_DP)
++            signal_rcp_interrupt(sp->mi, MI_INTR_DP);
++
+         sp_delay_time = 0;
+     }
+ 

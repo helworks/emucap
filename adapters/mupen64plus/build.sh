@@ -91,6 +91,7 @@ PATCHES=(
   "$HERE/patches/0021-implement-lld-scd.patch"
   "$HERE/patches/0022-mi-repeat-mode.patch"
   "$HERE/patches/0023-resume-yielded-rsp.patch"
+  "$HERE/patches/0024-rdp-interrupt-on-sync-full.patch"
 )
 if command -v shasum >/dev/null 2>&1; then
   ACTUAL_PATCHSET_SHA256="$(for source_patch in "${PATCHES[@]}"; do cat "$source_patch"; done | shasum -a 256 | awk '{print $1}')"
@@ -128,6 +129,7 @@ PATCHED_MEMBERS=(
   "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/main/savestates.h"
   "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/main/workqueue.c"
   "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/rcp/rsp/rsp_core.c"
+  "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/rcp/rdp/rdp_core.c"
   "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/rcp/vi/vi_controller.c"
   "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/rcp/ri/ri_controller.h"
   "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/rdram/rdram.c"
