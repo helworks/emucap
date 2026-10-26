@@ -1,0 +1,45 @@
+emucap: take a queued interrupt check only while interrupts are enabled.
+
+check_int_handler raised an exception unconditionally. A CHECK_INT queued while interrupts were
+enabled could run after the CPU had entered another exception: libdragon disables COP1 inside
+interrupt handlers and expects the resulting nested Coprocessor Unusable exception, so the stale
+check fired at the handler entry with EXL set, overwrote EPC and was reported as a critical
+"Coprocessor Unusable exception at inthandler". Re-check IE/EXL/ERL and the pending mask when
+the event runs, and keep Cause.IP when raising Coprocessor 1 Unusable.
+
+--- a/src/device/r4300/cp0.c
++++ b/src/device/r4300/cp0.c
+@@ -128,7 +128,9 @@
+ 
+     if (!(cp0_regs[CP0_STATUS_REG] & CP0_STATUS_CU1))
+     {
+-        cp0_regs[CP0_CAUSE_REG] = CP0_CAUSE_EXCCODE_CPU | CP0_CAUSE_CE1;
++        /* emucap: IP bits mirror the interrupt lines and stay pending across the exception. */
++        cp0_regs[CP0_CAUSE_REG] = (cp0_regs[CP0_CAUSE_REG] & UINT32_C(0xFF00))
++            | CP0_CAUSE_EXCCODE_CPU | CP0_CAUSE_CE1;
+         exception_general(r4300);
+         return 1;
+     }
+--- a/src/device/r4300/interrupt.c
++++ b/src/device/r4300/interrupt.c
+@@ -405,7 +405,19 @@
+ 
+ void check_int_handler(void* opaque)
+ {
+-    exception_general((struct r4300_core*)opaque);
++    struct r4300_core* r4300 = (struct r4300_core*)opaque;
++    uint32_t* cp0_regs = r4300_cp0_regs(&r4300->cp0);
++
++    /* emucap: CHECK_INT is queued when an interrupt became pending while enabled. If the CPU took
++     * another exception before the event ran (EXL set), or software masked interrupts meanwhile,
++     * taking it now would overwrite EPC of the exception in progress. Re-evaluate the condition
++     * the hardware applies; a still-pending interrupt is taken once software re-enables it. */
++    if ((cp0_regs[CP0_STATUS_REG] & (CP0_STATUS_IE | CP0_STATUS_EXL | CP0_STATUS_ERL)) != CP0_STATUS_IE
++        || !(cp0_regs[CP0_STATUS_REG] & cp0_regs[CP0_CAUSE_REG] & UINT32_C(0xFF00)))
++        return;
++
++    cp0_regs[CP0_CAUSE_REG] &= ~CP0_CAUSE_EXCCODE_MASK;
++    exception_general(r4300);
+ }
+ 
+ /* Special interrupt is a fake interrupt which porpose is

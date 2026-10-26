@@ -92,6 +92,7 @@ PATCHES=(
   "$HERE/patches/0022-mi-repeat-mode.patch"
   "$HERE/patches/0023-resume-yielded-rsp.patch"
   "$HERE/patches/0024-rdp-interrupt-on-sync-full.patch"
+  "$HERE/patches/0025-masked-interrupt-check.patch"
 )
 if command -v shasum >/dev/null 2>&1; then
   ACTUAL_PATCHSET_SHA256="$(for source_patch in "${PATCHES[@]}"; do cat "$source_patch"; done | shasum -a 256 | awk '{print $1}')"
@@ -139,6 +140,7 @@ PATCHED_MEMBERS=(
   "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/r4300/cached_interp.c"
   "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/r4300/mips_instructions.def"
   "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/pif/bootrom_hle.c"
+  "mupen64plus-bundle-src-$M64P_VERSION/source/mupen64plus-core/src/device/r4300/cp0.c"
 )
 # Added headers are not archive members; recreate them from the maintained patches.
 rm -f "$SRC/source/mupen64plus-core/src/device/r4300/interrupt_jitter.h"
