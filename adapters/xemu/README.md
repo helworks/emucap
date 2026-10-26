@@ -59,6 +59,17 @@ controller topology. It is deliberately same-generation-only: relaunching xemu i
 container, and a different or modified disc is rejected before mutation. Load remains frozen,
 reconciles owned breakpoints and input, and proves both QMP and GDB serviceability; a failed load is
 rolled back to the prior frozen state or marked unresolved if recovery cannot be proved.
+Replay determinism: xemu already runs one TCG thread under `-icount` with the RTC on the VM
+clock and the APU frame loop driven by guest time, but the NV2A PFIFO pusher/puller runs on its
+own host thread. The guest polled GPU progress (DMA GET, notifiers, semaphores, PGRAPH status)
+at points that depended on host scheduling, so replays of one state took the same logical path
+while CPU registers and about 18 RAM chunks drifted from the first tap. Patch 0025 makes a vCPU
+register write that releases FIFO work (PFIFO, PGRAPH and NV_USER DMA PUT/GET/REF writes) wait,
+with the BQL released, until the FIFO thread reports idle, i.e. ran out of commands or stalled
+on a guest-time event such as a flip. The live run after `save_state` and two loaded replays
+then match in registers, screenshots and all 64 MiB of RAM, and `verify_determinism` is
+reproducible for screenshot, state and memory.
+
 NV2A snapshot format 4 preserves PGRAPH command attributes and active inline vertices,
 rebuilds renderer cache state, and releases FIFO ownership on decode failures. Earlier
 native NV2A formats omit required command state and are rejected. Host API 4 mutually

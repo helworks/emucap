@@ -1,0 +1,78 @@
+diff --git a/hw/xbox/nv2a/pfifo.c b/hw/xbox/nv2a/pfifo.c
+--- a/hw/xbox/nv2a/pfifo.c
++++ b/hw/xbox/nv2a/pfifo.c
+@@ -19,6 +19,7 @@
+  * License along with this library; if not, see <http://www.gnu.org/licenses/>.
+  */
+ 
+ #include "nv2a_int.h"
++#include "exec/icount.h"
+ 
+ typedef struct RAMHTEntry {
+@@ -85,6 +86,7 @@
+     }
+ 
+     pfifo_kick(d);
++    pfifo_emucap_drain(d);
+ 
+     qemu_mutex_unlock(&d->pfifo.lock);
+ }
+@@ -95,6 +97,25 @@
+     qemu_cond_broadcast(&d->pfifo.fifo_cond);
+ }
+ 
++/*
++ * emucap: under icount the guest must not observe how far the host FIFO thread got. After a
++ * vCPU register write releases FIFO work, wait (BQL released, pfifo.lock held as by the caller)
++ * until the pusher and puller report idle, i.e. ran out of commands or stalled on guest-time
++ * events such as a flip or an interrupt acknowledgement. GPU writes to guest memory, GET
++ * pointers, notifiers and interrupts then land at the same guest instruction on every run.
++ */
++void pfifo_emucap_drain(NV2AState *d)
++{
++    if (!icount_enabled() || !d->pfifo.fifo_kick || !bql_locked()) {
++        return;
++    }
++    bql_unlock();
++    while (d->pfifo.fifo_kick && !d->exiting) {
++        qemu_cond_wait(&d->pfifo.fifo_idle_cond, &d->pfifo.lock);
++    }
++    bql_lock();
++}
++
+ static bool can_fifo_access(NV2AState *d) {
+     return qatomic_read(&d->pgraph.regs_[NV_PGRAPH_FIFO]) &
+            NV_PGRAPH_FIFO_ACCESS;
+diff --git a/hw/xbox/nv2a/pgraph/pgraph.c b/hw/xbox/nv2a/pgraph/pgraph.c
+--- a/hw/xbox/nv2a/pgraph/pgraph.c
++++ b/hw/xbox/nv2a/pgraph/pgraph.c
+@@ -174,6 +174,7 @@
+     }
+ 
+     qemu_mutex_unlock(&pg->lock);
++    pfifo_emucap_drain(d);
+     qemu_mutex_unlock(&d->pfifo.lock);
+ }
+ 
+diff --git a/hw/xbox/nv2a/pgraph/pgraph.h b/hw/xbox/nv2a/pgraph/pgraph.h
+--- a/hw/xbox/nv2a/pgraph/pgraph.h
++++ b/hw/xbox/nv2a/pgraph/pgraph.h
+@@ -291,6 +291,7 @@
+ 
+ void *pfifo_thread(void *arg);
+ void pfifo_kick(NV2AState *d);
++void pfifo_emucap_drain(NV2AState *d);
+ 
+ void pgraph_renderer_register(const PGRAPHRenderer *renderer);
+ 
+diff --git a/hw/xbox/nv2a/user.c b/hw/xbox/nv2a/user.c
+--- a/hw/xbox/nv2a/user.c
++++ b/hw/xbox/nv2a/user.c
+@@ -106,6 +106,7 @@
+             }
+ 
+             pfifo_kick(d);
++            pfifo_emucap_drain(d);
+ 
+         } else {
+             /* ramfc */
