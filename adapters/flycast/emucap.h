@@ -38,6 +38,9 @@ void emucap_park();
 // true일 때만 emucap_exec_bp_check(pc)를 보고(핫루프 비용 0), 히트면 emucap_bp_spin(pc)로 명령-정밀 정지.
 extern bool g_emucap_bp_armed;
 bool emucap_exec_bp_check(uint32_t pc);
+// launch(start_frozen): EMUCAP_START_FROZEN=1 parks before the first SH4 instruction and pins the
+// AICA real-time clock (aica_if.cpp GetRTC_now, injected) so a cold boot replays.
+bool emucap_controlled_start_requested();
 void emucap_bp_spin(uint32_t pc);
 
 // 크래시경로 관측 훅(set_trace/get_trace/watch_register/call_stack) — 같은 Run() 루프(주입)가 매 명령 전 사용한다.

@@ -309,6 +309,16 @@ inject_check 'emucap_exec_bp_check' "$SRC/core/hw/sh4/interpr/sh4_interpreter.cp
 inject_check 'emucap.h' "$SRC/core/hw/sh4/interpr/sh4_interpreter.cpp"
 echo "→ sh4_interpreter.cpp exec BP 훅 주입(Run 루프 명령-정밀 정지)"
 
+# 2f''. Controlled start pins the AICA RTC: GetRTC_now() reads the host clock, so cold boots differ.
+#    With EMUCAP_START_FROZEN=1 it returns the fixed 1/1/70 time Flycast already uses for GGPO netplay.
+perl -0777 -pi -e 's/(#include [^\n]*\n)/${1}#include "emucap.h"\n/ unless m{emucap\.h}' \
+  "$SRC/core/hw/aica/aica_if.cpp"
+perl -0777 -pi -e 's/(u32 GetRTC_now\(\)\n\{\n)/${1}\tif (emucap_controlled_start_requested())\n\t\treturn (20 * 365 + 5) * 24 * 60 * 60;\n/ unless m{emucap_controlled_start_requested}' \
+  "$SRC/core/hw/aica/aica_if.cpp"
+inject_check 'emucap.h' "$SRC/core/hw/aica/aica_if.cpp"
+inject_check 'emucap_controlled_start_requested' "$SRC/core/hw/aica/aica_if.cpp"
+echo "→ aica_if.cpp controlled-start fixed RTC 주입"
+
 # 2f'. sh4_interpreter Run() frozen park: the vblank service only requests a park; the loop parks right
 #    after UpdateSystem_INTC(), where no scheduler callback is in flight and the saved state is whole.
 perl -0777 -pi -e 's/(\t+)(UpdateSystem_INTC\(\);\n)(\t+\} catch \(const SH4ThrownException& ex\))/${1}${2}${1}if (g_emucap_park_pending) emucap_park();\n${3}/ unless m{emucap_park}' \

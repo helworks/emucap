@@ -142,6 +142,8 @@ pub struct Launch<'a> {
     pub mute: bool,
     /// Enable Flycast's GDB stub (for the exec-breakpoint path).
     pub gdb: bool,
+    /// `launch(start_frozen)`: park before the first SH4 instruction with a fixed RTC.
+    pub start_frozen: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -278,6 +280,9 @@ pub fn launch(l: &Launch) -> std::io::Result<u32> {
     let mut spec = flycast_spec(&launch_binary, l.log_path, &opts);
     for (k, v) in iso_env {
         spec = spec.env(k, v);
+    }
+    if l.start_frozen {
+        spec = spec.env("EMUCAP_START_FROZEN", "1");
     }
     let pid = super::spawn_detached(&spec)?;
     // Keep the macOS display awake for the HITL window and reap the helper (no-op off macOS).

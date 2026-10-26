@@ -89,6 +89,15 @@ contracts are not available under the native adapter's vblank-frame freeze model
 MCP launch enables audio with `sound:true` (default false). The shell launcher uses
 `EMUCAP_MUTE=0`. Both write `aica.Volume` only in the emucap-owned config copy.
 
+**Controlled start.** `launch(start_frozen:true)` parks once before the first interpreted SH4
+instruction: `status.state` is `frozen`, `status.launch_start` is
+`{controlled:true, boundary:"pre_first_instruction"}`, and hello lists the `controlled_start`
+host feature. `step`/`resume` continue from that instruction as from an execution breakpoint;
+there is no screenshot until the guest first presents. The controlled start also pins the AICA
+real-time clock (`GetRTC_now`, injected by build.sh) to the fixed time Flycast uses for GGPO, so
+a cold boot replays: two launches of the demodisc ELF matched SH-4 registers, all 16 MiB of RAM
+and the screenshot at frames 601 and 1201.
+
 **Frozen screenshots use the last presented guest image.** The renderer publishes RGB after
 each successful presentation, before the observation fence completes. Screenshot requests encode
 that buffer on the emulation thread. Loading a state invalidates the image; advance until the

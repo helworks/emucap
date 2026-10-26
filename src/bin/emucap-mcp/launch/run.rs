@@ -214,6 +214,7 @@ pub(crate) fn make_launch(
         && adapter != "xemu"
         && adapter != "psoxide"
         && adapter != "mupen64plus"
+        && adapter != "flycast"
         && !super::producers::is_producer(adapter)
     {
         return serde_json::json!({
@@ -1215,6 +1216,7 @@ pub(super) fn launch_flycast(
         runtime: Some(runtime),
         mute: !a.sound.unwrap_or(false),
         gdb: false,
+        start_frozen: a.start_frozen,
     };
     match emucap::launch::flycast::launch(&spec) {
         Ok(pid) => serde_json::json!({

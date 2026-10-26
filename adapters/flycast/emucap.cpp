@@ -98,7 +98,17 @@ void emucap_encode_png(const unsigned char* raw, int w, int h, std::vector<unsig
 
 // exec breakpoint armed 플래그(전역 — sh4_interpreter.cpp Run() 훅이 extern으로 읽는다). BP가 하나라도
 // 있을 때만 true → 없으면 인터프리터 핫루프는 bool 한 번만 본다(조회 비용 0). emucap.cpp가 갱신.
-bool g_emucap_bp_armed = false;
+bool emucap_controlled_start_requested() {
+	static const bool requested = [] {
+		const char* value = getenv("EMUCAP_START_FROZEN");
+		return value != nullptr && strcmp(value, "1") == 0;
+	}();
+	return requested;
+}
+// launch(start_frozen): park once at the first interpreted SH4 instruction (pre_first_instruction).
+static bool g_start_frozen_pending = emucap_controlled_start_requested();
+static bool g_controlled_start = false;
+bool g_emucap_bp_armed = g_start_frozen_pending;
 bool g_emucap_park_pending = false;
 // 실행추적/레지스터워치 armed 플래그(전역 — 같은 Run() 훅이 extern으로 읽는다). set_trace 또는
 // watch_register가 켜졌을 때만 true → 셋 다 off면 인터프리터 핫루프는 bool 한 번만 봐서 훅 비용 0.
@@ -1051,7 +1061,7 @@ static inline uint32_t sh4_fold_pc(uint32_t a) {
 void rearm_breakpoints() {
 	g_bp_addrs.clear();
 	for (const auto& b : g_bps) g_bp_addrs.insert(sh4_fold_pc(b.addr));
-	g_emucap_bp_armed = !g_bp_addrs.empty();
+	g_emucap_bp_armed = !g_bp_addrs.empty() || g_start_frozen_pending;
 }
 void handle_set_breakpoint(long id, const std::string& line) {
 	if (g_bps.size() >= 128) {
@@ -1388,7 +1398,9 @@ void handle(const std::string& line) {
 			r += "],"
 			     // Advertise the memory types accepted by read_memory, write_memory, and find_pattern.
 			     "\"memory_types\":[\"ram\",\"vram\",\"aica\"],"
-			     "\"host_features\":[\"native_renderer_fence\"],"
+			     "\"host_features\":[\"native_renderer_fence\"";
+			if (emucap_controlled_start_requested()) r += ",\"controlled_start\"";
+			r += "],"
 			     "\"state_groups\":[\"cpu\"],"
 			     "\"cpu_targets\":[{\"id\":\"main\",\"aliases\":[\"sh4\"],\"default\":true,"
 			     "\"disassembly_modes\":[\"auto\",\"sh4\"]}],"
@@ -1433,6 +1445,8 @@ void handle(const std::string& line) {
 				+ ",\"mode\":\"" + (g_input_override.engaged() ? std::string("persistent") : std::string("native"))
 				+ "\",\"pressed_mask\":" + std::to_string(g_input_override.pressed_mask()) + "}"
 				+ ",\"execution_limits\":{\"max_sync_advance_count\":" + std::to_string(MAX_SYNC_ADVANCE) + "}";
+			if (g_controlled_start)
+				result += ",\"launch_start\":{\"controlled\":true,\"boundary\":\"pre_first_instruction\"}";
 			{
 				std::lock_guard<std::mutex> lk(g_fb_mtx);
 				result += std::string(",\"framebuffer_fresh\":") + (g_fb_fresh ? "true" : "false");
@@ -1961,7 +1975,9 @@ uint32_t emucap_kcode() { return g_input_override.kcode(); }  // Active-low: pre
 
 // 인터프리터 Run() 훅(주입)이 매 명령 전 호출 — pc가 exec BP면 true. armed(전역 bool)가 true일 때만
 // 불리므로(핫루프 보호) 여기선 집합 조회만. emu 스레드 단독 접근이라 락 불필요.
-bool emucap_exec_bp_check(uint32_t pc) { return g_bp_addrs.find(sh4_fold_pc(pc)) != g_bp_addrs.end(); }
+bool emucap_exec_bp_check(uint32_t pc) {
+	return g_start_frozen_pending || g_bp_addrs.find(sh4_fold_pc(pc)) != g_bp_addrs.end();
+}
 
 // 히트 순간 CPU 레지스터를 {name:value} JSON으로 — exec BP 히트에 pc뿐 아니라 D0등 문맥을 싣는다(MD와 동형).
 // Flycast BP는 exec 전용이라 firehose 걱정이 없어 모든 히트에 캡처한다(예: 렌더진입 collect BP+step으로
@@ -2022,6 +2038,17 @@ static void emucap_debugger_spin(uint32_t pc, bool execution_breakpoint) {
 }
 
 void emucap_bp_spin(uint32_t pc) {
+	if (g_start_frozen_pending) {
+		// Controlled start: no guest instruction has run yet. Park here once; step/resume continue
+		// from this instruction exactly as from an execution breakpoint.
+		g_start_frozen_pending = false;
+		g_controlled_start = true;
+		g_emucap_bp_armed = !g_bp_addrs.empty();
+		g_frozen = true;
+		g_step_remaining = 0;
+		emucap_park();
+		return;
+	}
 	emucap_debugger_spin(pc, true);
 }
 
