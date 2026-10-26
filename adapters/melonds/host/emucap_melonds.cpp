@@ -220,39 +220,64 @@ const std::vector<std::string> kButtons = {"a", "b", "select", "start", "right",
 
 class MelonBackend : public emucap_producer::Backend {
 public:
-	MelonBackend(NDS& nds, std::string rom) : nds_(nds), rom_(std::move(rom)) {
-		auto raw = [](u8* base, uint64_t size) {
-			return [base, size](uint64_t a, uint8_t* out, size_t n) {
-				if (a > size || n > size - a) return false;
-				std::memcpy(out, base + a, n);
-				return true;
-			};
+	MelonBackend(std::string rom, std::vector<uint8_t> bytes, bool jit)
+		: rom_(std::move(rom)), bytes_(std::move(bytes)), jit_(jit) {
+		auto ram = [this](u8* (*base)(NDS&), uint64_t size) {
+			return std::make_pair(
+				std::function<bool(uint64_t, uint8_t*, size_t)>([this, base, size](uint64_t a, uint8_t* out, size_t n) {
+					if (a > size || n > size - a) return false;
+					std::memcpy(out, base(*nds_) + a, n);
+					return true;
+				}),
+				std::function<bool(uint64_t, const uint8_t*, size_t)>([this, base, size](uint64_t a, const uint8_t* in, size_t n) {
+					if (a > size || n > size - a) return false;
+					std::memcpy(base(*nds_) + a, in, n);
+					return true;
+				}));
 		};
-		auto raw_write = [](u8* base, uint64_t size) {
-			return [base, size](uint64_t a, const uint8_t* in, size_t n) {
-				if (a > size || n > size - a) return false;
-				std::memcpy(base + a, in, n);
-				return true;
-			};
+		auto add = [&](const char* name, uint64_t size, u8* (*base)(NDS&)) {
+			auto rw = ram(base, size);
+			regions_.push_back({name, size, true, true, rw.first, rw.second});
 		};
-		const uint64_t main_size = (uint64_t)nds_.MainRAMMask + 1;
-		regions_.push_back({"main", main_size, true, true, raw(nds_.MainRAM, main_size), raw_write(nds_.MainRAM, main_size)});
-		regions_.push_back({"shared_wram", nds_.SharedWRAMSize, true, true, raw(nds_.SharedWRAM, nds_.SharedWRAMSize), raw_write(nds_.SharedWRAM, nds_.SharedWRAMSize)});
-		regions_.push_back({"arm7_wram", nds_.ARM7WRAMSize, true, true, raw(nds_.ARM7WRAM, nds_.ARM7WRAMSize), raw_write(nds_.ARM7WRAM, nds_.ARM7WRAMSize)});
-		regions_.push_back({"itcm", ITCMPhysicalSize, true, true, raw(nds_.ARM9.ITCM, ITCMPhysicalSize), raw_write(nds_.ARM9.ITCM, ITCMPhysicalSize)});
-		regions_.push_back({"dtcm", DTCMPhysicalSize, true, true, raw(nds_.ARM9.DTCM, DTCMPhysicalSize), raw_write(nds_.ARM9.DTCM, DTCMPhysicalSize)});
+		// DS main RAM is 4 MiB (MainRAMMask + 1); the DSi's 16 MiB is not used by this host.
+		add("main", 4u << 20, [](NDS& n) { return n.MainRAM; });
+		add("shared_wram", 0x8000, [](NDS& n) { return n.SharedWRAM; });
+		add("arm7_wram", 0x10000, [](NDS& n) { return n.ARM7WRAM; });
+		add("itcm", ITCMPhysicalSize, [](NDS& n) { return (u8*)n.ARM9.ITCM; });
+		add("dtcm", DTCMPhysicalSize, [](NDS& n) { return n.ARM9.DTCM; });
 		// The ARM9 bus view. Reads go through the bus and may touch I/O registers, so it is not
 		// offered to read_memory_batch.
 		regions_.push_back({"arm9", 1ull << 32, true, false,
 			[this](uint64_t a, uint8_t* out, size_t n) {
-				for (size_t i = 0; i < n; i++) out[i] = nds_.ARM9Read8((u32)(a + i));
+				for (size_t i = 0; i < n; i++) out[i] = nds_->ARM9Read8((u32)(a + i));
 				return true;
 			},
 			[this](uint64_t a, const uint8_t* in, size_t n) {
-				for (size_t i = 0; i < n; i++) nds_.ARM9Write8((u32)(a + i), in[i]);
+				for (size_t i = 0; i < n; i++) nds_->ARM9Write8((u32)(a + i), in[i]);
 				return true;
 			}});
 	}
+
+	// Build a freshly booted machine: FreeBIOS, generated firmware, direct boot.
+	bool boot(std::string& error) {
+		nds_.reset();
+		NDSArgs args;
+		if (!jit_) args.JIT = std::nullopt;
+		nds_ = std::make_unique<NDS>(std::move(args), nullptr);
+		auto data = std::make_unique<u8[]>(bytes_.size());
+		std::memcpy(data.get(), bytes_.data(), bytes_.size());
+		NDSCart::NDSCartArgs cart_args {};
+		auto cart = NDSCart::ParseROM(std::move(data), (u32)bytes_.size(), nullptr, std::move(cart_args));
+		if (!cart) { error = "melonDS could not parse " + rom_; return false; }
+		nds_->Reset();
+		nds_->SetNDSCart(std::move(cart));
+		nds_->SetupDirectBoot(rom_name());
+		nds_->Start();
+		fresh_ = false;
+		return true;
+	}
+
+	NDS& nds() { return *nds_; }
 
 	std::string system() const override { return "nds"; }
 	std::string adapter() const override { return "melonds"; }
@@ -272,9 +297,9 @@ public:
 
 	// Apply held input before each frame (emulator thread).
 	void apply_input() {
-		nds_.SetKeyMask(~mask_ & 0xFFF);
-		if (touch_down_) nds_.TouchScreen((u16)touch_x_, (u16)touch_y_);
-		else nds_.ReleaseScreen();
+		nds_->SetKeyMask(~mask_ & 0xFFF);
+		if (touch_down_) nds_->TouchScreen((u16)touch_x_, (u16)touch_y_);
+		else nds_->ReleaseScreen();
 	}
 
 	void cpu_state(std::vector<CpuState>& out) override {
@@ -288,27 +313,52 @@ public:
 			s.registers.emplace_back("cpu.cpsr", cpu.CPSR);
 			out.push_back(std::move(s));
 		};
-		add("arm9", {"main", "cpu", "arm946e-s"}, nds_.ARM9);
-		add("arm7", {"sub", "arm7tdmi"}, nds_.ARM7);
+		add("arm9", {"main", "cpu", "arm946e-s"}, nds_->ARM9);
+		add("arm7", {"sub", "arm7tdmi"}, nds_->ARM7);
 	}
 
 	bool save_state(std::vector<uint8_t>& out, std::string& error) override {
 		Savestate state;
 		if (state.Error) { error = "cannot allocate savestate buffer"; return false; }
-		if (!nds_.DoSavestate(&state) || state.Error) { error = "melonDS DoSavestate failed"; return false; }
+		if (!nds_->DoSavestate(&state) || state.Error) { error = "melonDS DoSavestate failed"; return false; }
 		state.Finish();
 		const u8* data = (const u8*)state.Buffer();
 		out.assign(data, data + state.Length());
 		// Append the host-held input so a loaded origin replays with the same pad state.
 		for (int i = 0; i < 4; i++) out.push_back((uint8_t)(mask_ >> (8 * i)));
+		// Re-seat the running machine from the bytes just written, so the continuation after
+		// save_state is the same machine every later load_state produces.
+		// The presented image is not part of the savestate; carry it over so a screenshot taken
+		// right after save_state still shows the frame the state was saved at.
+		std::vector<u32> shown[2];
+		for (int s = 0; s < 2; s++) {
+			const u32* src = nds_->GPU.Framebuffer[nds_->GPU.FrontBuffer][s].get();
+			if (src) shown[s].assign(src, src + 256 * 192);
+		}
+		const bool fresh = fresh_;
+		if (!load_state(out, error)) return false;
+		for (int s = 0; s < 2; s++) {
+			u32* dst = nds_->GPU.Framebuffer[nds_->GPU.FrontBuffer][s].get();
+			if (dst && shown[s].size() == 256 * 192) std::memcpy(dst, shown[s].data(), 256 * 192 * sizeof(u32));
+		}
+		fresh_ = fresh;
 		return true;
 	}
 
+	// Every load restores into a freshly booted machine. A machine that already ran keeps
+	// per-process state outside DoSavestate (observed as a one-VBlank-IRQ shift against the live
+	// continuation), so reusing it would make in-process reloads differ from cross-process ones.
 	bool load_state(const std::vector<uint8_t>& data, std::string& error) override {
 		if (data.size() < 4) { error = "savestate payload is truncated"; return false; }
 		std::vector<uint8_t> payload(data.begin(), data.end() - 4);
+		if (!boot(error)) return false;
 		Savestate state(payload.data(), (u32)payload.size(), false);
-		if (state.Error || !nds_.DoSavestate(&state) || state.Error) { error = "melonDS rejected the savestate"; return false; }
+		if (state.Error || !nds_->DoSavestate(&state) || state.Error) {
+			std::string ignored;
+			boot(ignored);
+			error = "melonDS rejected the savestate; the machine was rebooted";
+			return false;
+		}
 		size_t t = data.size() - 4;
 		mask_ = (u32)data[t] | (u32)data[t + 1] << 8 | (u32)data[t + 2] << 16 | (u32)data[t + 3] << 24;
 		fresh_ = false;
@@ -318,9 +368,9 @@ public:
 	void frame_done() { fresh_ = true; }
 
 	bool capture(FrameImage& image, std::string& error) override {
-		int front = nds_.GPU.FrontBuffer;
-		const u32* top = nds_.GPU.Framebuffer[front][0].get();
-		const u32* bottom = nds_.GPU.Framebuffer[front][1].get();
+		int front = nds_->GPU.FrontBuffer;
+		const u32* top = nds_->GPU.Framebuffer[front][0].get();
+		const u32* bottom = nds_->GPU.Framebuffer[front][1].get();
 		if (!top || !bottom) { error = "no rendered frame is available"; return false; }
 		if (!fresh_) { error = "no frame has been rendered since load_state; advance first"; return false; }
 		image.width = 256;
@@ -339,14 +389,7 @@ public:
 	}
 
 	bool supports_reset() const override { return true; }
-	bool reset(std::string& error) override {
-		nds_.Reset();
-		if (nds_.NeedsDirectBoot() || direct_boot_) nds_.SetupDirectBoot(rom_name());
-		nds_.Start();
-		fresh_ = false;
-		(void)error;
-		return true;
-	}
+	bool reset(std::string& error) override { return boot(error); }
 
 	std::vector<std::string> active_exceptions() const override {
 		return {"melonds.execution.instruction-step-absent", "melonds.input-hold.port-zero-only", "melonds.state-load.external-media"};
@@ -357,6 +400,7 @@ public:
 		notes.set("screens", emucap_producer::Json("screenshot stacks the top screen over the bottom screen (256x384)"));
 		notes.set("touch", emucap_producer::Json("set_input pointer {x,y,down} in screenshot coordinates; y>=192 is the touch screen"));
 		notes.set("bios", emucap_producer::Json("FreeBIOS and generated firmware; direct boot"));
+		notes.set("state_load", emucap_producer::Json("load_state restores into a freshly booted machine; save_state re-seats the running machine from the state it wrote"));
 		hello.set("capability_notes", notes);
 	}
 
@@ -365,11 +409,11 @@ public:
 		return slash == std::string::npos ? rom_ : rom_.substr(slash + 1);
 	}
 
-	bool direct_boot_ = true;
-
 private:
-	NDS& nds_;
+	std::unique_ptr<NDS> nds_;
 	std::string rom_;
+	std::vector<uint8_t> bytes_;
+	bool jit_;
 	std::vector<Region> regions_;
 	u32 mask_ = 0;
 	bool touch_down_ = false;
@@ -395,6 +439,7 @@ int main(int argc, char** argv) {
 		else if (a == "--frames" && i + 1 < argc) frames_unmanaged = std::atol(argv[++i]);
 		else if (a == "--dump-png" && i + 1 < argc) dump_png = argv[++i];
 		else if (a == "--verbose") melonDS::Platform::g_log_level = 0;
+		else if (a == "--display") {}  // headless only; the flag is accepted and ignored
 		else if (rom.empty() && a[0] != '-') rom = a;
 		else { usage(); return 2; }
 	}
@@ -403,20 +448,8 @@ int main(int argc, char** argv) {
 	std::vector<uint8_t> bytes;
 	std::string error;
 	if (!emucap_producer::read_file(rom, bytes, error)) { std::fprintf(stderr, "[emucap] %s\n", error.c_str()); return 1; }
-	auto data = std::make_unique<u8[]>(bytes.size());
-	std::memcpy(data.get(), bytes.data(), bytes.size());
-
-	NDSArgs args;
-	if (!jit) args.JIT = std::nullopt;
-	auto nds = std::make_unique<NDS>(std::move(args), nullptr);
-	NDSCart::NDSCartArgs cart_args {};
-	auto cart = NDSCart::ParseROM(std::move(data), (u32)bytes.size(), nullptr, std::move(cart_args));
-	if (!cart) { std::fprintf(stderr, "[emucap] melonDS could not parse %s\n", rom.c_str()); return 1; }
-	nds->Reset();
-	nds->SetNDSCart(std::move(cart));
-	MelonBackend backend(*nds, rom);
-	nds->SetupDirectBoot(backend.rom_name());
-	nds->Start();
+	MelonBackend backend(rom, std::move(bytes), jit);
+	if (!backend.boot(error)) { std::fprintf(stderr, "[emucap] %s\n", error.c_str()); return 1; }
 
 	emucap_producer::Producer producer(backend);
 	const bool managed = producer.start();
@@ -429,8 +462,8 @@ int main(int argc, char** argv) {
 	long run = 0;
 	while (!producer.quit_requested()) {
 		backend.apply_input();
-		nds->RunFrame();
-		while (nds->SPU.ReadOutput(audio.data(), 2048) > 0) {}
+		backend.nds().RunFrame();
+		while (backend.nds().SPU.ReadOutput(audio.data(), 2048) > 0) {}
 		backend.frame_done();
 		if (!managed) {
 			run++;
