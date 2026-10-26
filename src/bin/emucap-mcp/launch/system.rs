@@ -40,6 +40,9 @@ pub(super) fn normalize_system(system: &str) -> Option<&'static str> {
         "gamecube" | "game-cube" | "gc" | "ngc" | "dolphin-gc" => Some("gamecube"),
         "wii" | "nintendo-wii" | "dolphin-wii" => Some("wii"),
         "xbox" | "original-xbox" | "ogxbox" => Some("xbox"),
+        "wiiu" | "wii-u" | "cemu" => Some("wiiu"),
+        "ps3" | "playstation3" | "playstation-3" | "rpcs3" => Some("ps3"),
+        "psvita" | "vita" | "ps-vita" | "playstation-vita" | "vita3k" => Some("psvita"),
         "3ds" | "n3ds" | "nintendo-3ds" | "azahar" | "citra" => Some("3ds"),
         _ => None,
     }
@@ -65,6 +68,9 @@ pub(super) fn adapter_for_system(system: &str) -> (&'static str, Option<&'static
         "ps2" => ("pcsx2", None),
         "gamecube" | "wii" => ("dolphin", None),
         "xbox" => ("xemu", None),
+        "wiiu" => ("cemu", None),
+        "ps3" => ("rpcs3", None),
+        "psvita" => ("vita3k", None),
         "3ds" => ("azahar", None),
         _ => ("", None),
     }

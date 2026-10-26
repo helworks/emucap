@@ -487,6 +487,18 @@ pub(crate) fn runtime_paths(port: Option<u16>) -> serde_json::Value {
                 "build": abs_path_json(&root, &["adapters", "azahar", "build.sh"]),
                 "binary_env": "EMUCAP_AZAHAR_BIN",
             },
+            "vita3k": {
+                "build": abs_path_json(&root, &["adapters", "vita3k", "build.sh"]),
+                "binary_env": "EMUCAP_VITA3K_BIN",
+            },
+            "rpcs3": {
+                "build": abs_path_json(&root, &["adapters", "rpcs3", "build.sh"]),
+                "binary_env": "EMUCAP_RPCS3_BIN",
+            },
+            "cemu": {
+                "build": abs_path_json(&root, &["adapters", "cemu", "build.sh"]),
+                "binary_env": "EMUCAP_CEMU_BIN",
+            },
             "melonds": {
                 "build": abs_path_json(&root, &["adapters", "melonds", "build.sh"]),
                 "binary_env": "EMUCAP_MELONDS_BIN",
@@ -746,6 +758,57 @@ fn build_supported_systems_value() -> serde_json::Value {
                 "elf"
             ],
             "notes": "Azahar libretro core in a headless emucap host with the software renderer. Homebrew (.3dsx) and decrypted titles boot without system files; encrypted titles need the operator's AES keys. Frame steps, savestates (core serialization), fixed RTC and CPU tick origin. libretro exposes no CPU registers."
+        },
+        {
+            "system": "psvita",
+            "aliases": [
+                "vita",
+                "ps-vita",
+                "playstation-vita",
+                "vita3k"
+            ],
+            "adapter": "vita3k",
+            "content": [
+                "vpk"
+            ],
+            "required_firmware": [
+                "Vita preference tree (EMUCAP_VITA3K_PREF): os0/vs0/sa0 modules and fonts as installed by Vita3K"
+            ],
+            "notes": "Emucap-patched Vita3K SDL frontend under an X display (Xvfb works), OpenGL renderer. Frames are emulated vblanks; frozen stops pause every guest kernel thread. No savestates, no controlled start; guest threads run on host threads, so frame contents are not repeatable."
+        },
+        {
+            "system": "ps3",
+            "aliases": [
+                "playstation3",
+                "playstation-3",
+                "rpcs3"
+            ],
+            "adapter": "rpcs3",
+            "content": [
+                "self",
+                "bin",
+                "elf"
+            ],
+            "required_firmware": [
+                "PS3UPDAT.PUP installed once with emucap-rpcs3-host --install-firmware (EMUCAP_RPCS3_FIRMWARE)"
+            ],
+            "notes": "Emucap-patched RPCS3 (--no-gui) under an X display; the producer is self-paced: frozen stops are Emu.Pause() and step uses RPCS3's pause-after-N-flips frame advance. Screenshots read the flipped buffer from RSX memory (Write Color Buffers). No savestates wired, no controlled start."
+        },
+        {
+            "system": "wiiu",
+            "aliases": [
+                "wii-u",
+                "cemu"
+            ],
+            "adapter": "cemu",
+            "content": [
+                "wuhb",
+                "rpx",
+                "wua",
+                "wud",
+                "wux"
+            ],
+            "notes": "Emucap-patched Cemu under an X display with the OpenGL renderer. Frames are TV buffer swaps; frozen stops park the GPU thread (PPC threads block on GX2 shortly after; best effort). No savestates, no controlled start. Encrypted titles need the operator's keys.txt."
         }
     ])
 }

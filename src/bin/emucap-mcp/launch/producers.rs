@@ -13,12 +13,20 @@ pub(super) fn producer_for(adapter: &str) -> Option<&'static ProducerAdapter> {
     match adapter {
         "melonds" => Some(&emucap::launch::melonds::ADAPTER),
         "azahar" => Some(&emucap::launch::azahar::ADAPTER),
+        "vita3k" => Some(&emucap::launch::vita3k::ADAPTER),
+        "rpcs3" => Some(&emucap::launch::rpcs3::ADAPTER),
+        "cemu" => Some(&emucap::launch::cemu::ADAPTER),
         _ => None,
     }
 }
 
 pub(super) fn is_producer(adapter: &str) -> bool {
     producer_for(adapter).is_some()
+}
+
+/// Producers whose host parks before the first emulated instruction.
+pub(super) fn supports_start_frozen(adapter: &str) -> bool {
+    producer_for(adapter).is_some_and(|producer| producer.controlled_start)
 }
 
 pub(super) fn precondition(adapter: &ProducerAdapter, root: &Path) -> serde_json::Value {

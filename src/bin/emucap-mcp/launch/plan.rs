@@ -870,6 +870,27 @@ pub(super) fn infer_system(
             "needs_user_input": false,
             "markers": markers,
         }),
+        Some("vpk") => serde_json::json!({
+            "system": "psvita",
+            "confidence": "extension",
+            "reason": "PlayStation Vita package extension",
+            "needs_user_input": false,
+            "markers": markers,
+        }),
+        Some("self") => serde_json::json!({
+            "system": "ps3",
+            "confidence": "extension",
+            "reason": "PlayStation 3 signed executable extension",
+            "needs_user_input": false,
+            "markers": markers,
+        }),
+        Some("wuhb" | "rpx" | "wua" | "wud" | "wux") => serde_json::json!({
+            "system": "wiiu",
+            "confidence": "extension",
+            "reason": "Wii U title extension",
+            "needs_user_input": false,
+            "markers": markers,
+        }),
         Some("cue" | "chd" | "bin" | "iso" | "img" | "ccd" | "rvz" | "wia" | "gcz") => {
             serde_json::json!({
                 "system": null,
@@ -1021,7 +1042,9 @@ pub(crate) fn make_launch_plan(port: Option<u16>, args: &LaunchPlanArgs) -> serd
         if adapter == "melonds" {
             preferred_launcher_args["nds_backend"] = serde_json::json!("melonds");
         }
-        preferred_launcher_args["start_frozen"] = serde_json::json!(true);
+        if super::producers::supports_start_frozen(adapter) {
+            preferred_launcher_args["start_frozen"] = serde_json::json!(true);
+        }
     } else if adapter == "psoxide" {
         preferred_launcher_args["psx_backend"] = serde_json::json!("psoxide");
         // A Play-session window starts running so the replay plays out on screen.
@@ -1280,8 +1303,8 @@ pub(crate) fn make_launch_plan(port: Option<u16>, args: &LaunchPlanArgs) -> serd
             serde_json::Value::Null
         },
         "start_frozen_contract": {
-            "supported": adapter == "mesen2" || adapter == "mednafen" || adapter == "np2kai" || adapter == "xemu" || adapter == "psoxide" || super::producers::is_producer(adapter),
-            "boundary": if adapter == "mesen2" || adapter == "mednafen" || adapter == "np2kai" || adapter == "xemu" || adapter == "psoxide" || super::producers::is_producer(adapter) { serde_json::json!("pre_first_instruction") } else { serde_json::Value::Null },
+            "supported": adapter == "mesen2" || adapter == "mednafen" || adapter == "np2kai" || adapter == "xemu" || adapter == "psoxide" || super::producers::supports_start_frozen(adapter),
+            "boundary": if adapter == "mesen2" || adapter == "mednafen" || adapter == "np2kai" || adapter == "xemu" || adapter == "psoxide" || super::producers::supports_start_frozen(adapter) { serde_json::json!("pre_first_instruction") } else { serde_json::Value::Null },
             "request_with": "launch(..., start_frozen:true)",
             "repeatable_initial_conditions": system == "snes" || system == "md" || adapter == "np2kai"
         },

@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 pub mod azahar;
+pub mod cemu;
 pub mod desmume_nds;
 mod directory_replace;
 pub mod dolphin;
@@ -28,7 +29,9 @@ pub mod pcsx2;
 pub mod ppsspp;
 pub mod producer;
 pub mod psoxide;
+pub mod rpcs3;
 pub mod spec;
+pub mod vita3k;
 pub mod xemu;
 
 pub(crate) fn new_native_debug_token() -> String {
