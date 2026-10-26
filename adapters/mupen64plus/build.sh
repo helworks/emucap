@@ -93,6 +93,7 @@ PATCHES=(
   "$HERE/patches/0023-resume-yielded-rsp.patch"
   "$HERE/patches/0024-rdp-interrupt-on-sync-full.patch"
   "$HERE/patches/0025-masked-interrupt-check.patch"
+  "$HERE/patches/0026-controlled-start-mempak-seed.patch"
 )
 if command -v shasum >/dev/null 2>&1; then
   ACTUAL_PATCHSET_SHA256="$(for source_patch in "${PATCHES[@]}"; do cat "$source_patch"; done | shasum -a 256 | awk '{print $1}')"

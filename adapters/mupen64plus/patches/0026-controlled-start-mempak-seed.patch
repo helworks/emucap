@@ -1,0 +1,21 @@
+emucap: seed Controller Pak IDs deterministically for a controlled start.
+
+The core formats each new Controller Pak with IDs from a generator seeded by time(NULL); games
+that read the pak (libdragon's accessory probe) then hold different bytes in RDRAM on every cold
+boot. With EMUCAP_START_FROZEN=1 use the fixed seed netplay already uses.
+
+--- a/src/main/main.c
++++ b/src/main/main.c
+@@ -1747,7 +1747,11 @@
+     }
+ 
+     /* Seed MPK ID gen using current time */
+-    uint64_t mpk_seed = !netplay_is_init() ? (uint64_t)time(NULL) : 0;
++    /* emucap: a controlled start (EMUCAP_START_FROZEN=1) must replay the same cold boot, so the
++     * Controller Pak IDs are generated from the fixed seed netplay uses. */
++    const char *emucap_start_frozen = SDL_getenv("EMUCAP_START_FROZEN");
++    int emucap_fixed_seed = emucap_start_frozen != NULL && strcmp(emucap_start_frozen, "1") == 0;
++    uint64_t mpk_seed = (!netplay_is_init() && !emucap_fixed_seed) ? (uint64_t)time(NULL) : 0;
+     l_mpk_idgen = xoshiro256pp_seed(mpk_seed);
+ 
+     /* take the r4300 emulator mode from the config file at this point and cache it in a global variable */
