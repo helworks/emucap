@@ -1,0 +1,23 @@
+diff --git a/pcsx2/PINE.cpp b/pcsx2/PINE.cpp
+--- a/pcsx2/PINE.cpp
++++ b/pcsx2/PINE.cpp
+@@ -1602,6 +1602,19 @@
+ 							[&state_error](const std::string& error) { state_error = error; });
+ 					}, true);
+ 					success = state_error.empty();
++					if (success)
++					{
++						// emucap: continue from the snapshot just written. A load clears the CPU
++						// execution caches and re-derives timing state (recompiler block boundaries,
++						// vsync rate) that the snapshot does not carry, so without this the live run
++						// after save_state diverged from every replay loaded from that file.
++						Error reload_error;
++						Host::RunOnCPUThread([&path, &reload_error, &success]() {
++							success = VMManager::LoadState(path.c_str(), &reload_error);
++							if (success)
++								VMManager::SetPaused(true);
++						}, true);
++					}
+ 				}
+ 				else
+ 				{

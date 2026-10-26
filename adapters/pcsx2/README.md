@@ -203,6 +203,13 @@ introduced frame-counted terminal replies; the current host API is 9, and older 
 `save_state` and `load_state` require frozen state and preserve it on return. Their paths must be
 absolute. A running-state call fails before starting a save or load.
 
+A successful `save_state` then loads the file it just wrote (patch 0024), so the session continues
+from exactly the saved snapshot. A load clears the CPU execution caches and re-derives timing state
+(recompiler block boundaries, vsync rate) that the snapshot does not carry; without the reload the
+live run after `save_state` diverged in registers and 14 RAM chunks from every replay loaded from
+that file. With it, the live run, two in-process loads and their full 32 MiB EE RAM match exactly.
+The reload adds a load's time (about 0.2-0.3 s) to `save_state`.
+
 `reset` pauses first, performs PCSX2's reset synchronously, releases any controller override, clears
 stale hit events, and returns frozen with `post_reset_pc`. Armed adapter breakpoints remain available
 for the fresh boot; call `resume` when inspection or breakpoint setup is complete.
