@@ -279,6 +279,10 @@ run at that point; it is deterministic. A controlled start also selects single-c
 (`EXI-IPL-controlled-start-time.patch`) to advance the custom RTC value by emulated time only, as
 for a movie, instead of host wall time; Dolphin's custom RTC otherwise still follows the host clock
 and seeded `OSSystemTime` (0x800030D8) and the guest's timestamps differently on every boot.
+On Wii, a controlled start also uses the fixed serial number Dolphin uses for determinism
+(`Boot-BS2-controlled-start-serial.patch`) when it generates `setting.txt`; otherwise the serial is
+derived from the host time. Two cold boots match registers, MEM1 and frozen screenshots at
+frames 1, 900 and 1500 on both GameCube and Wii.
 
 ### Linux runtime resources
 

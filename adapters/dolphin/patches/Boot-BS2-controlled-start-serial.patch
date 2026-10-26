@@ -1,0 +1,25 @@
+diff --git a/Source/Core/Core/Boot/Boot_BS2Emu.cpp b/Source/Core/Core/Boot/Boot_BS2Emu.cpp
+--- a/Source/Core/Core/Boot/Boot_BS2Emu.cpp
++++ b/Source/Core/Core/Boot/Boot_BS2Emu.cpp
+@@ -2,6 +2,9 @@
+ // SPDX-License-Identifier: GPL-2.0-or-later
+ 
+ #include <cstdint>
++
++#include <cstdlib>
++#include <string_view>
+ #include <map>
+ #include <optional>
+ #include <string>
+@@ -424,7 +427,10 @@
+ 
+   if (serno.empty() || serno == "000000000")
+   {
+-    if (Core::WantsDeterminism())
++    // emucap launch(start_frozen) replays a cold boot: use the fixed determinism serial.
++    const char* emucap_start_frozen = std::getenv("EMUCAP_START_FROZEN");
++    if (Core::WantsDeterminism() ||
++        (emucap_start_frozen != nullptr && std::string_view(emucap_start_frozen) == "1"))
+       serno = "123456789";
+     else
+       serno = Common::SettingsWriter::GenerateSerialNumber();

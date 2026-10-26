@@ -138,6 +138,7 @@ git -C "$SRC" checkout -- \
   Source/Core/Core/State.h \
   Source/Core/VideoCommon/FrameDumper.cpp \
   Source/Core/VideoCommon/FrameDumper.h \
+  Source/Core/Core/Boot/Boot_BS2Emu.cpp \
   Source/Core/Core/HW/EXI/EXI_DeviceIPL.cpp \
   Source/Core/DolphinNoGUI/Platform.cpp \
   Source/Core/DolphinNoGUI/Platform.h \
