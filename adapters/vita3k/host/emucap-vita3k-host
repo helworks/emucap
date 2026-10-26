@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# emucap-vita3k-host: run the emucap-patched Vita3K SDL frontend with a generation-owned profile.
+#
+#   emucap-vita3k-host --rom <app.vpk> [--display]
+#
+# The wrapper copies the operator's Vita preference tree (EMUCAP_VITA3K_PREF: the directory that
+# holds os0/, vs0/, ux0/ ... as Vita3K installs them) into the launch generation, writes a config
+# that points Vita3K at that copy with the OpenGL renderer, and starts the SDL frontend, which
+# installs the .vpk and boots it. It needs an X display (Xvfb works).
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+VITA3K="${EMUCAP_VITA3K_EXE:-$HERE/Vita3K}"
+CONTENT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rom|--path) CONTENT="$2"; shift 2 ;;
+    --display) shift ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$CONTENT" ] || { echo "--rom is required" >&2; exit 2; }
+HOME_DIR="${EMUCAP_GENERATION_HOME:-$PWD}"
+PREF_SRC="${EMUCAP_VITA3K_PREF:-}"
+[ -n "$PREF_SRC" ] && [ -d "$PREF_SRC" ] || {
+  echo "EMUCAP_VITA3K_PREF must name the operator's Vita3K preference directory" >&2
+  exit 1
+}
+
+export XDG_CONFIG_HOME="$HOME_DIR/config" XDG_DATA_HOME="$HOME_DIR/data" XDG_CACHE_HOME="$HOME_DIR/cache"
+# Vita3K dereferences a null audio adapter when no audio device opens (containers, servers);
+# SDL's dummy driver keeps the audio path alive without a sound card.
+export SDL_AUDIO_DRIVER="${SDL_AUDIO_DRIVER:-dummy}"
+mkdir -p "$HOME_DIR/pref" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
+cp -a "$PREF_SRC/." "$HOME_DIR/pref/"
+cat >"$HOME_DIR/config.yml" <<EOF
+pref-path: $HOME_DIR/pref/
+backend-renderer: OpenGL
+initial-setup: true
+check-for-updates: false
+log-level: 2
+EOF
+cd "$HOME_DIR"
+exec "$VITA3K" --frontend sdl --config-location "$HOME_DIR/config.yml" --load-config "$CONTENT"
