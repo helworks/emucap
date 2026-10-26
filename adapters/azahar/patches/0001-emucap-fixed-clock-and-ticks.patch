@@ -1,0 +1,28 @@
+diff --git a/src/citra_libretro/core_settings.cpp b/src/citra_libretro/core_settings.cpp
+index 085f7ac..31c47b5 100644
+--- a/src/citra_libretro/core_settings.cpp
++++ b/src/citra_libretro/core_settings.cpp
+@@ -2,6 +2,7 @@
+ // Licensed under GPLv2 or any later version
+ // Refer to the license.txt file included.
+ 
++#include <cstdlib>
+ #include <boost/hana/string.hpp>
+ 
+ #include "citra_libretro/core_settings.h"
+@@ -1063,6 +1064,15 @@ void ParseCoreOptions(void) {
+     ParseLayoutOptions();
+     ParseStorageOptions();
+     ParseInputOptions();
++
++    // emucap: a managed generation boots from a fixed RTC and fixed CPU tick origin so cold
++    // boots and replays do not inherit host time or the per-boot random tick offset.
++    if (const char* fixed = std::getenv("EMUCAP_FIXED_TIME"); fixed && fixed[0]) {
++        Settings::values.init_clock = Settings::InitClock::FixedTime;
++        Settings::values.init_time = std::strtoull(fixed, nullptr, 10);
++        Settings::values.init_ticks_type = Settings::InitTicks::Fixed;
++        Settings::values.init_ticks_override = 0;
++    }
+ }
+ 
+ } // namespace LibRetro

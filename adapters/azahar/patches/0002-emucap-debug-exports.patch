@@ -1,0 +1,68 @@
+diff --git a/src/citra_libretro/citra_libretro.cpp b/src/citra_libretro/citra_libretro.cpp
+index c939311..f9c2807 100644
+--- a/src/citra_libretro/citra_libretro.cpp
++++ b/src/citra_libretro/citra_libretro.cpp
+@@ -734,3 +734,63 @@ size_t retro_get_memory_size(unsigned id) {
+ void retro_cheat_reset() {}
+ 
+ void retro_cheat_set(unsigned index, bool enabled, const char* code) {}
++
++
++// emucap debug exports. These are not part of the libretro API: the emucap producer host looks
++// them up with dlsym to read physical FCRAM, process virtual memory and ARM11 registers at the
++// frame boundary between retro_run() calls.
++extern "C" {
++
++RETRO_API size_t emucap_fcram_size(void) {
++    auto& system = Core::System::GetInstance();
++    if (!system.IsPoweredOn())
++        return 0;
++    return Settings::values.is_new_3ds.GetValue() ? Memory::FCRAM_N3DS_SIZE : Memory::FCRAM_SIZE;
++}
++
++RETRO_API uint8_t* emucap_fcram_pointer(void) {
++    auto& system = Core::System::GetInstance();
++    if (!system.IsPoweredOn())
++        return nullptr;
++    return system.Memory().GetFCRAMPointer(0);
++}
++
++RETRO_API size_t emucap_read_vaddr(uint32_t address, void* out, size_t length) {
++    auto& system = Core::System::GetInstance();
++    if (!system.IsPoweredOn())
++        return 0;
++    auto process = system.Kernel().GetCurrentProcess();
++    if (!process)
++        return 0;
++    auto* bytes = static_cast<u8*>(out);
++    for (size_t i = 0; i < length; i++) {
++        const VAddr vaddr = static_cast<VAddr>(address + i);
++        if (!system.Memory().IsValidVirtualAddress(*process, vaddr))
++            return i;
++        const u8* ptr = system.Memory().GetPointer(vaddr);
++        if (!ptr)
++            return i;
++        bytes[i] = *ptr;
++    }
++    return length;
++}
++
++RETRO_API unsigned emucap_cpu_count(void) {
++    auto& system = Core::System::GetInstance();
++    return system.IsPoweredOn() ? system.GetNumCores() : 0;
++}
++
++// r0..r14, pc, cpsr
++RETRO_API bool emucap_cpu_registers(unsigned core, uint32_t* out17) {
++    auto& system = Core::System::GetInstance();
++    if (!system.IsPoweredOn() || core >= system.GetNumCores())
++        return false;
++    const auto& cpu = system.GetCore(core);
++    for (int i = 0; i < 15; i++)
++        out17[i] = cpu.GetReg(i);
++    out17[15] = cpu.GetPC();
++    out17[16] = cpu.GetCPSR();
++    return true;
++}
++
++} // extern "C"
