@@ -1531,6 +1531,41 @@
         "state.load.content_check": "none"
       },
       "verification": ["contract-test:melonds-producer-advertisement"]
+    },
+    {
+      "id": "azahar.execution.instruction-step-absent",
+      "feature": "execution.step",
+      "kind": "capability_absent",
+      "targets": ["CORE.AVAIL.1", "EXEC.STEP.INSTR.1"],
+      "scope": {"adapter": "azahar", "systems": ["3ds"]},
+      "activation": {"native_instruction_step": false},
+      "constraints": {"execution.step.units": ["frames"]},
+      "public_behavior": {"invalid": "unsupported"},
+      "verification": ["contract-test:azahar-producer-advertisement"]
+    },
+    {
+      "id": "azahar.input-hold.port-zero-only",
+      "feature": "input.hold",
+      "kind": "parameter_constraint",
+      "targets": ["CORE.PARAM.1"],
+      "scope": {"adapter": "azahar", "systems": ["3ds"]},
+      "activation": {"port": "not_zero"},
+      "constraints": {"input.ports.allowed": [0]},
+      "public_behavior": {"invalid": "bad_params"},
+      "verification": ["contract-test:azahar-producer-advertisement"]
+    },
+    {
+      "id": "azahar.state-load.external-media",
+      "feature": "state.load",
+      "kind": "evidence_constraint",
+      "targets": ["STATE.LOAD.MEDIA.1"],
+      "scope": {"adapter": "azahar", "systems": ["3ds"]},
+      "activation": {"snapshot": "any"},
+      "constraints": {
+        "state.load.media_boundary": "current_content_preserved",
+        "state.load.content_check": "none"
+      },
+      "verification": ["contract-test:azahar-producer-advertisement"]
     }
   ]
 }
