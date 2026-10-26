@@ -524,3 +524,45 @@ fn psoxide_host_advertisement_validates_with_its_exceptions() {
     let foreign = validate_advertisement(&ad, Some("mednafen"), Some("psx"), &methods);
     assert_eq!(foreign.state, "unvalidated");
 }
+
+#[test]
+fn melonds_producer_advertisement() {
+    let exceptions = [
+        "melonds.execution.instruction-step-absent",
+        "melonds.input-hold.port-zero-only",
+        "melonds.state-load.external-media",
+    ];
+    let value = advertisement_value(&exceptions);
+    let ad = ContractAdvertisement::Reported(serde_json::from_value(value).unwrap());
+    // The method set adapters/_common/emucap_producer advertises with savestates enabled.
+    let methods = [
+        "hello",
+        "status",
+        "get_rom_info",
+        "get_state",
+        "read_memory",
+        "write_memory",
+        "read_memory_batch",
+        "pause",
+        "resume",
+        "step",
+        "set_input",
+        "screenshot",
+        "save_state",
+        "load_state",
+        "poll_events",
+        "reset",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect::<Vec<_>>();
+    let status = validate_advertisement(&ad, Some("melonds"), Some("nds"), &methods);
+    assert_eq!(status.state, "validated", "{:?}", status.errors);
+    assert_eq!(
+        status.constraints["execution.step.units"],
+        json!(["frames"])
+    );
+    assert_eq!(status.constraints["input.ports.allowed"], json!([0]));
+    let foreign = validate_advertisement(&ad, Some("desmume_nds"), Some("nds"), &methods);
+    assert_eq!(foreign.state, "unvalidated");
+}
