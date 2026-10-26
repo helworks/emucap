@@ -170,6 +170,11 @@ public:
 	virtual void extend_hello(Json& /*hello*/) const {}
 	// Whether entry() is a true pre-first-instruction boundary (start_frozen support).
 	virtual bool controlled_start() const { return true; }
+	// Multi-threaded emulators: stop and restart every guest execution thread. The producer
+	// calls halt() before it parks the boundary thread for a frozen stop and unhalt() before it
+	// lets the guest run again (resume or step). Single-threaded hosts leave both as no-ops.
+	virtual void halt() {}
+	virtual void unhalt() {}
 };
 
 // ---- producer ---------------------------------------------------------------------------------
@@ -262,6 +267,7 @@ private:
 
 	std::atomic<uint64_t> held_mask_{0};
 	std::atomic<bool> override_engaged_{false};
+	bool halted_ = false;
 
 	std::mutex rom_mutex_;
 	bool rom_cached_ = false;

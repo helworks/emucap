@@ -970,20 +970,43 @@ void Producer::boundary() {
 }
 
 void Producer::park() {
+	auto run_guest = [this] {
+		if (halted_) {
+			backend_.unhalt();
+			halted_ = false;
+		}
+	};
 	while (!quit_) {
 		std::shared_ptr<Job> job;
 		{
 			std::unique_lock<std::mutex> lock(queue_mutex_);
 			if (queue_.empty()) {
-				if (!frozen_.load() || step_job_) return;
+				if (!frozen_.load() || step_job_) {
+					lock.unlock();
+					run_guest();
+					return;
+				}
+				if (!halted_) {
+					lock.unlock();
+					backend_.halt();
+					halted_ = true;
+					continue;
+				}
 				queue_cv_.wait_for(lock, std::chrono::milliseconds(100));
 				continue;
 			}
 			job = queue_.front();
 			queue_.pop_front();
 		}
+		if (frozen_.load() && !halted_) {
+			backend_.halt();
+			halted_ = true;
+		}
 		execute(job);
-		if (step_job_) return;  // run frames for the step
+		if (step_job_) {  // run frames for the step
+			run_guest();
+			return;
+		}
 	}
 }
 
@@ -995,6 +1018,11 @@ void Producer::execute(const std::shared_ptr<Job>& job) {
 		reply = err(job->id, "internal_error", e.what());
 	} catch (...) {
 		reply = err(job->id, "internal_error", "unknown producer exception");
+	}
+	// A frozen stop is only reported after every guest thread has stopped.
+	if (frozen_.load() && !step_job_ && !halted_) {
+		backend_.halt();
+		halted_ = true;
 	}
 	if (!reply.empty()) finish(job, reply);
 }
