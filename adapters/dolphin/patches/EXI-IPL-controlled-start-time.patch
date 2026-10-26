@@ -1,0 +1,28 @@
+diff --git a/Source/Core/Core/HW/EXI/EXI_DeviceIPL.cpp b/Source/Core/Core/HW/EXI/EXI_DeviceIPL.cpp
+--- a/Source/Core/Core/HW/EXI/EXI_DeviceIPL.cpp
++++ b/Source/Core/Core/HW/EXI/EXI_DeviceIPL.cpp
+@@ -3,6 +3,9 @@
+ 
+ #include "Core/HW/EXI/EXI_DeviceIPL.h"
+ 
++#include <cstdlib>
++#include <string_view>
++
+ #include <cstring>
+ #include <string>
+ 
+@@ -417,6 +420,14 @@
+     // let's keep time moving forward, regardless of what it starts at
+     ltime += system.GetCoreTiming().GetTicks() / system.GetSystemTimers().GetTicksPerSecond();
+   }
++  else if (const char* emucap = std::getenv("EMUCAP_START_FROZEN");
++           emucap != nullptr && std::string_view(emucap) == "1")
++  {
++    // emucap launch(start_frozen): the custom RTC value advanced by emulated time only, as for a
++    // movie, so a cold boot reads the same clock regardless of host wall time.
++    ltime = Config::Get(Config::MAIN_CUSTOM_RTC_VALUE);
++    ltime += system.GetCoreTiming().GetTicks() / system.GetSystemTimers().GetTicksPerSecond();
++  }
+   else
+   {
+     ASSERT(!Core::WantsDeterminism());

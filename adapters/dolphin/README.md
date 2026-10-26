@@ -139,7 +139,8 @@ The native adapter currently advertises:
 - `disassemble`, `call_stack`;
 - frozen core only: `save_state`, `load_state`;
 - atomic `probe` through Control's link-locked pause/resume/load/exact-frame-step/read composition;
-- running core only: `screenshot`;
+- `screenshot` on a running core, or at a frozen stop reached by a completed frame `step`;
+- `get_rom_info` (content SHA-1, game ID, title ID, revision);
 - GameCube and Wii: `set_input`, with a system-specific port-0 button surface.
 
 It does not currently advertise tracing, real Wii Remote input, IR, motion, or extension injection.
@@ -251,8 +252,33 @@ failed: the CPU is powered down and the managed session must be restarted.
 ### Screenshots
 
 `screenshot` captures the next frame presented after the request and returns a PNG with dimensions,
-launch generation, and `freshness="current"` provenance. It is bounded to two seconds. A frozen
-core is rejected before a capture is armed; the adapter never resumes guest execution implicitly.
+launch generation, and `freshness="current"` provenance. It is bounded to two seconds.
+
+A frame `step` arms Dolphin's frame dumper before its final frame, so a screenshot at the stop it
+leaves returns the image that frame presented (`freshness="frame_boundary"`, `state="frozen"`). The
+readback is flushed on the video thread while the core stays parked; no guest time passes. That
+capture stays valid until the frame count or any non-observation request changes the stop. Other
+frozen stops (`pause`, `load_state`, a breakpoint) still have no current image and are rejected; the
+adapter never resumes guest execution implicitly. This makes `verify_determinism(observe=screenshot)`
+measurable: its replays end on a frame step.
+
+### ROM identity
+
+`get_rom_info` returns `rom_sha1` (SHA-1 of the launched content file), `size`, `game_id`,
+`title_id` and `revision`. The hash is computed once in the background at adapter start; until it
+completes the reply carries `sha1_status:"pending"` and no `rom_sha1`.
+
+### Controlled start (`start_frozen`)
+
+`launch(start_frozen:true)` boots Dolphin to pause (`bBootToPause`): the CPU thread stops before the
+first instruction of its run loop and the adapter connects only once it holds that pause, so
+`status.state` is `frozen` with `launch_start:{controlled:true, boundary:"pre_first_instruction"}`
+and hello lists `controlled_start`. Dolphin's HLE boot (EmulatedBS2 and the apploader) has already
+run at that point; it is deterministic. A controlled start also selects single-core CPU/GPU
+(`Core.CPUThread=False`), enables the custom RTC, and patches the IPL clock
+(`EXI-IPL-controlled-start-time.patch`) to advance the custom RTC value by emulated time only, as
+for a movie, instead of host wall time; Dolphin's custom RTC otherwise still follows the host clock
+and seeded `OSSystemTime` (0x800030D8) and the guest's timestamps differently on every boot.
 
 ### Linux runtime resources
 

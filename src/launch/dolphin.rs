@@ -429,7 +429,16 @@ pub struct Launch<'a> {
     pub runtime: Option<super::RuntimeEnv<'a>>,
     pub display: bool,
     pub sound: bool,
+    /// `launch(start_frozen)`: boot to pause with deterministic core settings.
+    pub start_frozen: bool,
 }
+
+/// Current-run settings for `launch(start_frozen)`: one CPU/GPU thread instead of the dual-core
+/// handoff, and Dolphin's custom RTC (its default value) instead of the host clock.
+pub const CONTROLLED_START_CONFIG: &[&str] = &[
+    "--config=Dolphin.Core.CPUThread=False",
+    "--config=Dolphin.Core.EnableCustomRTC=True",
+];
 
 pub fn launch(launch: &Launch) -> std::io::Result<u32> {
     let host_build = read_build_metadata(launch.binary)?;
@@ -456,11 +465,24 @@ pub fn launch(launch: &Launch) -> std::io::Result<u32> {
         "EMUCAP_DOLPHIN_PATCHSET_SHA256",
         &host_build.patchset_sha256,
     );
+    let spec = controlled_start_spec(spec, launch.start_frozen);
     let pid = super::spawn_detached(&spec)?;
     if launch.display {
         super::spawn_display_caffeinate(pid);
     }
     Ok(pid)
+}
+
+/// Add the controlled-start environment and deterministic core settings to a Dolphin spec.
+pub fn controlled_start_spec(spec: super::LaunchSpec, start_frozen: bool) -> super::LaunchSpec {
+    if !start_frozen {
+        return spec;
+    }
+    CONTROLLED_START_CONFIG
+        .iter()
+        .fold(spec.env("EMUCAP_START_FROZEN", "1"), |spec, arg| {
+            spec.arg(*arg)
+        })
 }
 
 #[cfg(test)]

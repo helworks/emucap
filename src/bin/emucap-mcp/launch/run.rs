@@ -215,6 +215,7 @@ pub(crate) fn make_launch(
         && adapter != "psoxide"
         && adapter != "mupen64plus"
         && adapter != "flycast"
+        && adapter != "dolphin"
         && !super::producers::is_producer(adapter)
     {
         return serde_json::json!({
@@ -1283,6 +1284,7 @@ pub(super) fn launch_dolphin(
         runtime: Some(runtime),
         display,
         sound: a.sound.unwrap_or(false),
+        start_frozen: a.start_frozen,
     };
     match dolphin_launch::launch(&launch) {
         Ok(pid) => serde_json::json!({

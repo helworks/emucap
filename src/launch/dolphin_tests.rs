@@ -392,3 +392,28 @@ fn runtime_refuses_symlinked_runtime_directory_without_touching_target() {
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
     assert_eq!(std::fs::read(marker).unwrap(), b"installed dolphin");
 }
+
+#[test]
+fn controlled_start_adds_boot_pause_env_and_deterministic_core_settings() {
+    let base = super::super::LaunchSpec::new(
+        std::path::Path::new("dolphin"),
+        std::path::Path::new("d.log"),
+    );
+    let plain = controlled_start_spec(base.clone(), false);
+    assert!(plain
+        .env
+        .iter()
+        .all(|(key, _)| key != "EMUCAP_START_FROZEN"));
+    assert!(plain.args.is_empty());
+    let frozen = controlled_start_spec(base, true);
+    assert!(frozen
+        .env
+        .iter()
+        .any(|(key, value)| key == "EMUCAP_START_FROZEN" && value == "1"));
+    for arg in CONTROLLED_START_CONFIG {
+        assert!(
+            frozen.args.iter().any(|value| value == arg),
+            "missing {arg}"
+        );
+    }
+}

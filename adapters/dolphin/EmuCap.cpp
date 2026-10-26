@@ -49,10 +49,12 @@ using SOCKET = int;
 
 #include "AudioCommon/AudioCommon.h"
 #include "Common/Config/Config.h"
+#include "Common/Crypto/SHA1.h"
 #include "Common/Event.h"
 #include "Common/FileUtil.h"
 #include "Common/SocketContext.h"
 #include "Core/AchievementManager.h"
+#include "Core/ConfigManager.h"
 #include "Core/Config/MainSettings.h"
 #include "Core/Config/WiimoteSettings.h"
 #include "Core/Core.h"
@@ -74,6 +76,7 @@ using SOCKET = int;
 #include "Core/PowerPC/MMU.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/State.h"
+#include "VideoCommon/AsyncRequests.h"
 #include "Core/System.h"
 #include "InputCommon/GCPadStatus.h"
 #include "VideoCommon/Fifo.h"
@@ -127,6 +130,78 @@ struct PublicBreakpoint
 std::map<int, PublicBreakpoint> s_breakpoints;
 int s_next_bp = 1;
 std::atomic<u64> s_file_sequence{0};
+
+// launch(start_frozen): Dolphin boots to pause (SConfig::bBootToPause) and the adapter only serves
+// once the CPU thread holds that pause, so the first status is the pre-run frozen entry.
+std::atomic<bool> s_controlled_start{false};
+
+bool ControlledStartRequested()
+{
+  const char* value = std::getenv("EMUCAP_START_FROZEN");
+  return value != nullptr && std::string(value) == "1";
+}
+
+// get_rom_info: SHA-1 of the launched content file, hashed once in the background.
+std::mutex s_rom_mutex;
+std::condition_variable s_rom_cv;
+bool s_rom_done = false;
+std::string s_rom_sha1;
+std::string s_rom_error;
+u64 s_rom_size = 0;
+std::thread s_rom_thread;
+
+void HashContent(std::string path)
+{
+  std::string sha1;
+  std::string error;
+  u64 size = 0;
+  std::ifstream file(path, std::ios::binary);
+  if (!file)
+  {
+    error = "content file could not be opened";
+  }
+  else
+  {
+    auto context = Common::SHA1::CreateContext();
+    std::vector<char> buffer(1 << 20);
+    while (file && !s_stop.load())
+    {
+      file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+      const std::streamsize got = file.gcount();
+      if (got <= 0)
+        break;
+      context->Update(reinterpret_cast<const u8*>(buffer.data()), static_cast<size_t>(got));
+      size += static_cast<u64>(got);
+    }
+    if (s_stop.load())
+      error = "adapter stopped before the content hash completed";
+    else if (file.bad())
+      error = "content file read failed";
+    else
+    {
+      sha1 = Common::SHA1::DigestToString(context->Finish());
+      std::transform(sha1.begin(), sha1.end(), sha1.begin(),
+                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    }
+  }
+  std::lock_guard<std::mutex> lk(s_rom_mutex);
+  s_rom_sha1 = sha1;
+  s_rom_error = error;
+  s_rom_size = size;
+  s_rom_done = true;
+  s_rom_cv.notify_all();
+}
+
+// Frame-exact frozen screenshots: the last frame of a completed step arms Dolphin's frame dumper,
+// so the image presented by that frame is kept for screenshot requests at the resulting stop.
+std::mutex s_step_capture_mutex;
+std::string s_step_capture_path;
+u64 s_step_capture_frame = 0;
+u64 s_step_capture_seq = 0;
+bool s_step_capture_valid = false;
+void ArmStepCapture();
+void InvalidateStepCapture();
+picojson::object FrozenStepScreenshot(Core::System& system);
 std::string s_handler_error_kind;
 std::string s_handler_error;
 
@@ -519,7 +594,7 @@ bool ObservationMethod(const std::string& method)
   static const char* const names[] = {
       "hello",       "status",    "read_memory",      "read_memory_batch", "get_state",
       "disassemble", "call_stack", "list_breakpoints", "poll_events",       "save_state",
-      "screenshot",  "execution_speed"};
+      "screenshot",  "execution_speed", "get_rom_info"};
   return std::any_of(std::begin(names), std::end(names),
                      [&](const char* name) { return method == name; });
 }
@@ -843,7 +918,8 @@ picojson::object Hello(Core::System& core_system, const picojson::object&)
        {"read_memory", "write_memory", "get_state", "status", "pause", "resume",
         "step", "step_instructions", "set_breakpoint", "clear_breakpoint", "list_breakpoints",
         "clear_all_breakpoints", "poll_events", "disassemble", "call_stack", "save_state",
-        "load_state", "screenshot", "reset", "execution_speed", "read_memory_batch"})
+        "load_state", "screenshot", "reset", "execution_speed", "read_memory_batch",
+        "get_rom_info"})
   {
     methods.push_back(picojson::value(std::string(m)));
   }
@@ -921,6 +997,10 @@ picojson::object Hello(Core::System& core_system, const picojson::object&)
   const std::string launch_id = EnvOr("EMUCAP_LAUNCH_ID", "");
   if (!launch_id.empty())
     r["launch_id"] = picojson::value(launch_id);
+  picojson::array host_features;
+  if (s_controlled_start.load())
+    host_features.push_back(picojson::value(std::string("controlled_start")));
+  r["host_features"] = picojson::value(host_features);
   return r;
 }
 
@@ -951,6 +1031,13 @@ picojson::object Status(Core::System& system, const picojson::object&)
   r["frame"] = picojson::value(static_cast<double>(CurrentFrame(system)));
   r["audio_output"] = picojson::value(AudioOutput());
   r["execution_speed"] = picojson::value(CurrentPacingPolicy());
+  if (s_controlled_start.load())
+  {
+    picojson::object launch_start;
+    launch_start["controlled"] = picojson::value(true);
+    launch_start["boundary"] = picojson::value(std::string("pre_first_instruction"));
+    r["launch_start"] = picojson::value(launch_start);
+  }
   if (!s_handler_error.empty())
     return {};
   // Lightweight breakpoint diagnostics. dbg_effective is Config::IsDebuggingEnabled()
@@ -1496,6 +1583,8 @@ picojson::object StepFrames(Core::System& system, const picojson::object& p)
         interruption_before = s_breakpoint_interruptions;
       }
 
+      if (completed + 1 == count)
+        ArmStepCapture();
       auto start = std::make_shared<FrameStart>();
       const bool keep_audio = completed + 1 < count;
       Core::QueueHostJob([start, keep_audio](Core::System& host_system) {
@@ -1569,7 +1658,19 @@ picojson::object StepFrames(Core::System& system, const picojson::object& p)
     r["state"] = picojson::value(std::string("frozen"));
     return r;
   };
+  InvalidateStepCapture();
   auto result = run();
+  if (result.count("status") && result.at("status").is<std::string>() &&
+      result.at("status").get<std::string>() == "completed")
+  {
+    std::lock_guard<std::mutex> lk(s_step_capture_mutex);
+    if (!s_step_capture_path.empty())
+    {
+      s_step_capture_frame = CurrentFrame(system);
+      s_step_capture_seq = s_boundary_seq.load();
+      s_step_capture_valid = true;
+    }
+  }
   if (!cancel_frame_step())
     return Fail("timeout", "frame advance terminal cleanup did not complete");
   if (s_handler_error.empty())
@@ -1998,13 +2099,145 @@ picojson::object SetInput(Core::System&, const picojson::object& p)
   return r;
 }
 
+bool ReadCompletePng(const std::string& path, std::vector<uint8_t>& bytes)
+{
+  static constexpr uint8_t iend[] = {0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44,
+                                     0xae, 0x42, 0x60, 0x82};
+  std::ifstream f(path, std::ios::binary | std::ios::ate);
+  if (!f)
+    return false;
+  const std::streamsize size = f.tellg();
+  if (size < 32)
+    return false;
+  f.seekg(0);
+  bytes.resize(static_cast<size_t>(size));
+  f.read(reinterpret_cast<char*>(bytes.data()), size);
+  return f && std::equal(std::begin(iend), std::end(iend), bytes.end() - sizeof(iend));
+}
+
+picojson::object PngResult(const std::vector<uint8_t>& bytes, const char* freshness,
+                           const char* state)
+{
+  const auto read_be32 = [&bytes](size_t offset) {
+    return (static_cast<u32>(bytes[offset]) << 24) |
+           (static_cast<u32>(bytes[offset + 1]) << 16) |
+           (static_cast<u32>(bytes[offset + 2]) << 8) | static_cast<u32>(bytes[offset + 3]);
+  };
+  picojson::object r;
+  r["png_base64"] = picojson::value(Base64(bytes.data(), bytes.size()));
+  r["bytes"] = picojson::value(static_cast<double>(bytes.size()));
+  r["format"] = picojson::value(std::string("png"));
+  r["width"] = picojson::value(static_cast<double>(read_be32(16)));
+  r["height"] = picojson::value(static_cast<double>(read_be32(20)));
+  r["freshness"] = picojson::value(std::string(freshness));
+  r["state"] = picojson::value(std::string(state));
+  const std::string launch_id = EnvOr("EMUCAP_LAUNCH_ID", "");
+  if (!launch_id.empty())
+    r["generation"] = picojson::value(launch_id);
+  return r;
+}
+
+void InvalidateStepCapture()
+{
+  std::lock_guard<std::mutex> lk(s_step_capture_mutex);
+  s_step_capture_valid = false;
+}
+
+void ArmStepCapture()
+{
+  if (!g_frame_dumper)
+    return;
+  const std::string path = File::GetUserPath(D_CACHE_IDX) + "emucap-step-capture-" +
+                           std::to_string(s_file_sequence.fetch_add(1)) + ".png";
+  if (!File::CreateFullPath(path))
+    return;
+  std::string previous;
+  {
+    std::lock_guard<std::mutex> lk(s_step_capture_mutex);
+    previous = s_step_capture_path;
+    s_step_capture_path = path;
+    s_step_capture_valid = false;
+  }
+  if (!previous.empty())
+    std::remove(previous.c_str());
+  std::remove(path.c_str());
+  // Non-blocking: the next present (the step's final frame) writes this file.
+  g_frame_dumper->SaveScreenshot(path);
+}
+
+// A frozen stop reached by a completed frame step returns the image that step's final frame
+// presented. Any other frozen stop (pause, load_state, breakpoint) still has no current image.
+picojson::object FrozenStepScreenshot(Core::System& system)
+{
+  std::string path;
+  {
+    std::lock_guard<std::mutex> lk(s_step_capture_mutex);
+    if (s_step_capture_valid && s_step_capture_frame == CurrentFrame(system) &&
+        s_step_capture_seq == s_boundary_seq.load())
+      path = s_step_capture_path;
+  }
+  if (path.empty())
+    return Fail("bad_state",
+                "screenshot requires a running core, or a frozen stop reached by a completed step");
+  std::vector<uint8_t> bytes;
+  if (!ReadCompletePng(path, bytes))
+  {
+    // Dolphin reads a dumped frame back at the next frame's end. The core is parked after the
+    // step's final frame, so flush that readback on the video thread now.
+    Core::QueueHostJob([](Core::System& owner) {
+      Core::RunOnCPUThread(owner, [] {
+        AsyncRequests::GetInstance()->PushEvent([] {
+          if (g_frame_dumper)
+            g_frame_dumper->FlushFrameDump();
+        });
+      });
+    });
+  }
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!ReadCompletePng(path, bytes))
+  {
+    if (std::chrono::steady_clock::now() >= deadline)
+      return Fail("emulator_error", "the step's frame capture did not complete within 5 seconds");
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  static constexpr uint8_t png_signature[] = {0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a};
+  if (!std::equal(std::begin(png_signature), std::end(png_signature), bytes.begin()))
+    return Fail("io_error", "step capture was not a PNG");
+  return PngResult(bytes, "frame_boundary", "frozen");
+}
+
+picojson::object GetRomInfo(Core::System&, const picojson::object&)
+{
+  std::unique_lock<std::mutex> lk(s_rom_mutex);
+  s_rom_cv.wait_for(lk, std::chrono::seconds(4), [] { return s_rom_done; });
+  picojson::object r;
+  const std::string content = EnvOr("EMUCAP_CONTENT", "");
+  r["system"] = picojson::value(EnvOr("EMUCAP_SYSTEM", "gamecube"));
+  r["adapter"] = picojson::value(std::string("dolphin-native"));
+  r["path"] = picojson::value(content);
+  r["game_id"] = picojson::value(SConfig::GetInstance().GetGameID());
+  r["title_id"] = picojson::value(static_cast<double>(SConfig::GetInstance().GetTitleID()));
+  r["revision"] = picojson::value(static_cast<double>(SConfig::GetInstance().GetRevision()));
+  if (!s_rom_done)
+  {
+    r["sha1_status"] = picojson::value(std::string("pending"));
+    return r;
+  }
+  if (!s_rom_error.empty())
+    return Fail("io_error", s_rom_error);
+  r["rom_sha1"] = picojson::value(s_rom_sha1);
+  r["sha1_status"] = picojson::value(std::string("complete"));
+  r["size"] = picojson::value(static_cast<double>(s_rom_size));
+  return r;
+}
+
 picojson::object Screenshot(Core::System& system, const picojson::object&)
 {
   // Dolphin fulfills screenshot requests on the next present. Reject a frozen core before arming
   // a request: resuming behind the caller's back would make this observation mutate guest time,
   // while arming and timing out would leave work owned by a completed request.
   if (Core::GetState(system) == Core::State::Paused)
-    return Fail("bad_state", "screenshot requires a running core");
+    return FrozenStepScreenshot(system);
   if (!g_frame_dumper)
     return Fail("bad_state", "frame dumper is not initialized");
 
@@ -2096,6 +2329,7 @@ Handler Lookup(const std::string& m)
   if (m == "set_input") return SetInput;
   if (m == "execution_speed") return ExecutionSpeed;
   if (m == "read_memory_batch") return ReadMemoryBatch;
+  if (m == "get_rom_info") return GetRomInfo;
   return nullptr;
 }
 
@@ -2376,6 +2610,11 @@ void ServeSession(Core::System& system, SOCKET sock)
 void ThreadMain(Core::System& system, unsigned short port)
 {
   Common::SocketContext socket_context;  // Windows WSAStartup RAII
+  // A controlled start connects only once the CPU thread holds the boot pause, so readiness and the
+  // first status describe the frozen pre-run entry rather than a core still starting.
+  while (s_controlled_start.load() && !s_stop.load() &&
+         Core::GetState(system) != Core::State::Paused)
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
   while (!s_stop.load() && !s_control_retired.load())
   {
     SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -2670,6 +2909,17 @@ void Start(Core::System& system)
   Config::SetBaseOrCurrent(Config::MAIN_ENABLE_DEBUGGING, true);
   s_stop.store(false);
   ++s_runtime_generation;
+  if (ControlledStartRequested())
+  {
+    // CpuThread applies bBootToPause before the first instruction of its run loop.
+    SConfig::GetInstance().bBootToPause = true;
+    s_controlled_start.store(true);
+  }
+  {
+    std::lock_guard<std::mutex> lk(s_rom_mutex);
+    s_rom_done = false;
+  }
+  s_rom_thread = std::thread(HashContent, EnvOr("EMUCAP_CONTENT", ""));
   s_thread = std::thread([&system, port] { ThreadMain(system, port); });
 }
 
@@ -2692,6 +2942,8 @@ void Stop()
   }
   if (s_thread.joinable())
     s_thread.join();
+  if (s_rom_thread.joinable())
+    s_rom_thread.join();
   s_started.store(false);
 }
 }  // namespace EmuCap
