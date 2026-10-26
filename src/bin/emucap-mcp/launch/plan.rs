@@ -870,6 +870,13 @@ pub(super) fn infer_system(
             "needs_user_input": false,
             "markers": markers,
         }),
+        Some("xex") => serde_json::json!({
+            "system": "x360",
+            "confidence": "extension",
+            "reason": "Xbox 360 executable extension",
+            "needs_user_input": false,
+            "markers": markers,
+        }),
         Some("vpk") => serde_json::json!({
             "system": "psvita",
             "confidence": "extension",

@@ -499,6 +499,10 @@ pub(crate) fn runtime_paths(port: Option<u16>) -> serde_json::Value {
                 "build": abs_path_json(&root, &["adapters", "cemu", "build.sh"]),
                 "binary_env": "EMUCAP_CEMU_BIN",
             },
+            "xenia": {
+                "build": abs_path_json(&root, &["adapters", "xenia", "build.sh"]),
+                "binary_env": "EMUCAP_XENIA_BIN",
+            },
             "melonds": {
                 "build": abs_path_json(&root, &["adapters", "melonds", "build.sh"]),
                 "binary_env": "EMUCAP_MELONDS_BIN",
@@ -809,6 +813,20 @@ fn build_supported_systems_value() -> serde_json::Value {
                 "wux"
             ],
             "notes": "Emucap-patched Cemu under an X display with the OpenGL renderer. Frames are TV buffer swaps; frozen stops park the GPU thread (PPC threads block on GX2 shortly after; best effort). No savestates, no controlled start. Encrypted titles need the operator's keys.txt."
+        },
+        {
+            "system": "x360",
+            "aliases": [
+                "xbox360",
+                "xbox-360",
+                "xenia"
+            ],
+            "adapter": "xenia",
+            "content": [
+                "xex",
+                "iso"
+            ],
+            "notes": "Emucap-patched Xenia Canary (Linux build) under an X display with the Vulkan renderer (Mesa lavapipe works). Frames are guest swaps on the command processor thread; frozen stops park it there and suspend every guest thread. Screenshots capture the guest output image. No savestates, no controlled start; guest threads run on host threads, so frame contents are not repeatable."
         }
     ])
 }

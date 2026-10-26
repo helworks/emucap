@@ -33,6 +33,7 @@ pub mod rpcs3;
 pub mod spec;
 pub mod vita3k;
 pub mod xemu;
+pub mod xenia;
 
 pub(crate) fn new_native_debug_token() -> String {
     format!(

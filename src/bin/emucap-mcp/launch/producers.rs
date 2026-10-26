@@ -16,6 +16,7 @@ pub(super) fn producer_for(adapter: &str) -> Option<&'static ProducerAdapter> {
         "vita3k" => Some(&emucap::launch::vita3k::ADAPTER),
         "rpcs3" => Some(&emucap::launch::rpcs3::ADAPTER),
         "cemu" => Some(&emucap::launch::cemu::ADAPTER),
+        "xenia" => Some(&emucap::launch::xenia::ADAPTER),
         _ => None,
     }
 }
