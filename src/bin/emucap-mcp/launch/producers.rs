@@ -12,6 +12,7 @@ use emucap::launch::producer::{Launch as ProducerLaunch, ProducerAdapter};
 pub(super) fn producer_for(adapter: &str) -> Option<&'static ProducerAdapter> {
     match adapter {
         "melonds" => Some(&emucap::launch::melonds::ADAPTER),
+        "azahar" => Some(&emucap::launch::azahar::ADAPTER),
         _ => None,
     }
 }

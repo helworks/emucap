@@ -863,6 +863,13 @@ pub(super) fn infer_system(
             "needs_user_input": false,
             "markers": markers,
         }),
+        Some("3dsx" | "cci" | "cxi" | "3ds") => serde_json::json!({
+            "system": "3ds",
+            "confidence": "extension",
+            "reason": "Nintendo 3DS homebrew or decrypted title extension",
+            "needs_user_input": false,
+            "markers": markers,
+        }),
         Some("cue" | "chd" | "bin" | "iso" | "img" | "ccd" | "rvz" | "wia" | "gcz") => {
             serde_json::json!({
                 "system": null,

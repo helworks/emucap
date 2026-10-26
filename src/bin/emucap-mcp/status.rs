@@ -483,6 +483,10 @@ pub(crate) fn runtime_paths(port: Option<u16>) -> serde_json::Value {
             "ppsspp": {
                 "build": abs_path_json(&root, &["adapters", "ppsspp", "build.sh"]),
             },
+            "azahar": {
+                "build": abs_path_json(&root, &["adapters", "azahar", "build.sh"]),
+                "binary_env": "EMUCAP_AZAHAR_BIN",
+            },
             "melonds": {
                 "build": abs_path_json(&root, &["adapters", "melonds", "build.sh"]),
                 "binary_env": "EMUCAP_MELONDS_BIN",
@@ -723,6 +727,25 @@ fn build_supported_systems_value() -> serde_json::Value {
             "content": ["xiso", "iso"],
             "required_firmware": ["mcpx_1.0.bin", "Complex_4627.bin", "xbox_hdd.qcow2"],
             "notes": ".xiso is inferred automatically. Shared .iso content requires system=xbox. Managed launch uses the pinned xemu fork and generation-isolated machine storage. Frozen save/load binds VM/HDD, EEPROM, exact current disc, host build, and controller topology and remains valid only within that launch generation. Loose XBE and later Xbox platforms are not accepted."
+        },
+        {
+            "system": "3ds",
+            "aliases": [
+                "n3ds",
+                "nintendo-3ds",
+                "azahar",
+                "citra"
+            ],
+            "adapter": "azahar",
+            "content": [
+                "3dsx",
+                "3ds",
+                "cci",
+                "cxi",
+                "app",
+                "elf"
+            ],
+            "notes": "Azahar libretro core in a headless emucap host with the software renderer. Homebrew (.3dsx) and decrypted titles boot without system files; encrypted titles need the operator's AES keys. Frame steps, savestates (core serialization), fixed RTC and CPU tick origin. libretro exposes no CPU registers."
         }
     ])
 }
