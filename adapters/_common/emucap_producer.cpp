@@ -612,6 +612,12 @@ Json Producer::execution_limits() const {
 	return limits;
 }
 
+bool Producer::has_batch_window() {
+	for (const auto& region : backend_.regions())
+		if (region.batch) return true;
+	return false;
+}
+
 Json Producer::batch_capability() {
 	Json cap = Json::object();
 	cap.set("max_ranges", Json(64));
@@ -647,6 +653,7 @@ Json Producer::hello() const {
 	for (const char* m : kMethods) {
 		std::string method = m;
 		if ((method == "save_state" || method == "load_state") && !backend_.supports_state()) continue;
+		if (method == "read_memory_batch" && !self->has_batch_window()) continue;
 		methods.push(Json(method));
 	}
 	if (backend_.supports_reset()) methods.push(Json("reset"));
@@ -685,7 +692,8 @@ Json Producer::hello() const {
 	contracts.set("catalog", Json("emucap-feature-contracts/v3"));
 	contracts.set("active_exceptions", Json::strings(backend_.active_exceptions()));
 	h.set("contracts", contracts);
-	h.set("memory_batch_capability", self->batch_capability());
+	// A batch capability must name at least one side-effect-free window.
+	if (self->has_batch_window()) h.set("memory_batch_capability", self->batch_capability());
 	if (!content_.empty()) h.set("content", Json(content_));
 	else h.set("content", Json(backend_.content_path()));
 	if (!launch_id_.empty()) h.set("launch_id", Json(launch_id_));
@@ -1238,6 +1246,7 @@ std::string Producer::run_job(const std::shared_ptr<Job>& job) {
 		return ok(id, r);
 	}
 	if (method == "read_memory_batch") {
+		if (!has_batch_window()) return err(id, "unsupported", "no side-effect-free memory window is available for batch reads");
 		if (!frozen_.load()) return err(id, "not_frozen", "read_memory_batch requires a frozen stop; call pause first");
 		const Json& ranges = p.get("ranges");
 		if (!ranges.is_array() || ranges.items().empty() || ranges.items().size() > 64)

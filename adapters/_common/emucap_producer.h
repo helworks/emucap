@@ -241,6 +241,7 @@ private:
 	Json rom_info();
 	Json execution_limits() const;
 	Json batch_capability();
+	bool has_batch_window();
 
 	// Emulator-thread method bodies; return a full reply line or empty when deferred.
 	std::string run_job(const std::shared_ptr<Job>& job);
