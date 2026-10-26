@@ -1,0 +1,101 @@
+emucap: keep a yielded RSP running and deliver its SET_INTR interrupts.
+
+When the RSP plugin returns without halting (cxd4 yields after the microcode writes SET_INTR,
+or after polling SP_STATUS while it waits for the CPU), 2.6.0 marks the task locked, drops the
+interrupt unless INTR_BREAK is set, and resumes the RSP only on the next CPU write to SP_STATUS.
+libdragon's rspq signals syncpoints with SET_INTR (INTR_BREAK off) and expects the RSP to keep
+running, so rspq_syncpoint_wait timed out. Signal the RSP-raised interrupt immediately, resume
+the yielded task from an SP event, and leave a task that broke without a completion event halted.
+
+--- a/src/device/rcp/rsp/rsp_core.c
++++ b/src/device/rcp/rsp/rsp_core.c
+@@ -36,6 +36,9 @@
+ #include "plugin/plugin.h"
+ #include "api/callbacks.h"
+ 
++/* emucap: count cycles before a yielded (unhalted) RSP task is resumed. */
++#define EMUCAP_RSP_RESUME_DELAY 100
++
+ static void do_sp_dma(struct rsp_core* sp, const struct sp_dma* dma)
+ {
+     unsigned int i,j;
+@@ -327,6 +330,11 @@
+     uint32_t save_pc = sp->regs2[SP_PC_REG] & ~0xfff;
+ 
+     uint32_t sp_delay_time;
++    /* emucap: an SP interrupt the CPU has not acknowledged yet is not a request of this run. */
++    uint32_t pending_sp_intr = sp->mi->regs[MI_INTR_REG] & MI_INTR_SP;
++    uint32_t rsp_raised;
++
++    sp->mi->regs[MI_INTR_REG] &= ~MI_INTR_SP;
+ 
+     if (sp->mem[0xfc0/4] == 1)
+     {
+@@ -383,35 +391,58 @@
+         sp_delay_time = 0;
+     }
+ 
++    rsp_raised = sp->mi->regs[MI_INTR_REG] & MI_INTR_SP;
++    sp->mi->regs[MI_INTR_REG] &= ~MI_INTR_SP;
++    sp->mi->regs[MI_INTR_REG] |= pending_sp_intr;
++
+     sp->rsp_task_locked = 0;
+     sp->mi->r4300->cp0.interrupt_unsafe_state &= ~INTR_UNSAFE_RSP;
+     if ((sp->regs[SP_STATUS_REG] & (SP_STATUS_HALT | SP_STATUS_BROKE)) == 0)
+     {
++        /* emucap: the RSP plugin returned without halting: it yielded after raising SET_INTR
++         * or while polling SP_STATUS for the CPU. A real RSP keeps running concurrently, so
++         * deliver its interrupt now and resume it from an SP event instead of waiting for the
++         * next CPU write to SP_STATUS (libdragon's rspq never makes one). */
+         sp->rsp_task_locked = 1;
+         sp->mi->r4300->cp0.interrupt_unsafe_state |= INTR_UNSAFE_RSP;
+-        sp->mi->regs[MI_INTR_REG] |= MI_INTR_SP;
++        if (rsp_raised)
++            signal_rcp_interrupt(sp->mi, MI_INTR_SP);
++        cp0_update_count(sp->mi->r4300);
++        add_interrupt_event(&sp->mi->r4300->cp0, SP_INT,
++            sp_delay_time > EMUCAP_RSP_RESUME_DELAY ? sp_delay_time : EMUCAP_RSP_RESUME_DELAY);
++        return;
+     }
+-    if (sp->mi->regs[MI_INTR_REG] & MI_INTR_SP)
++    if (rsp_raised)
+     {
+         cp0_update_count(sp->mi->r4300);
+         add_interrupt_event(&sp->mi->r4300->cp0, SP_INT, sp_delay_time);
+-        sp->mi->regs[MI_INTR_REG] &= ~MI_INTR_SP;
++        /* The SP event reports completion after the modelled task duration. */
++        sp->regs[SP_STATUS_REG] &=
++            ~(SP_STATUS_TASKDONE | SP_STATUS_BROKE | SP_STATUS_HALT);
+     }
+-
+-    sp->regs[SP_STATUS_REG] &=
+-        ~(SP_STATUS_TASKDONE | SP_STATUS_BROKE | SP_STATUS_HALT);
++    /* emucap: without a completion event the RSP stays halted as the plugin left it. */
+ }
+ 
+ void rsp_interrupt_event(void* opaque)
+ {
+     struct rsp_core* sp = (struct rsp_core*)opaque;
+ 
+-    if (!sp->rsp_task_locked)
++    if (sp->rsp_task_locked)
+     {
+-        sp->regs[SP_STATUS_REG] |=
+-            SP_STATUS_TASKDONE | SP_STATUS_BROKE | SP_STATUS_HALT;
++        /* emucap: resume a yielded RSP; one the CPU halted meanwhile is released. */
++        if ((sp->regs[SP_STATUS_REG] & (SP_STATUS_HALT | SP_STATUS_BROKE)) == 0)
++        {
++            do_SP_Task(sp);
++            return;
++        }
++        sp->rsp_task_locked = 0;
++        sp->mi->r4300->cp0.interrupt_unsafe_state &= ~INTR_UNSAFE_RSP;
++        return;
+     }
+ 
++    sp->regs[SP_STATUS_REG] |=
++        SP_STATUS_TASKDONE | SP_STATUS_BROKE | SP_STATUS_HALT;
++
+     if ((sp->regs[SP_STATUS_REG] & SP_STATUS_INTR_BREAK) != 0)
+     {
+         raise_rcp_interrupt(sp->mi, MI_INTR_SP);

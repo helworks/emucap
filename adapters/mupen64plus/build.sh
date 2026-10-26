@@ -90,6 +90,7 @@ PATCHES=(
   "$HERE/patches/0020-xkphys-load-store-addressing.patch"
   "$HERE/patches/0021-implement-lld-scd.patch"
   "$HERE/patches/0022-mi-repeat-mode.patch"
+  "$HERE/patches/0023-resume-yielded-rsp.patch"
 )
 if command -v shasum >/dev/null 2>&1; then
   ACTUAL_PATCHSET_SHA256="$(for source_patch in "${PATCHES[@]}"; do cat "$source_patch"; done | shasum -a 256 | awk '{print $1}')"
