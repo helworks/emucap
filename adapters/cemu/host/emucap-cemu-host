@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# emucap-cemu-host: run the emucap-patched Cemu with a generation-owned profile.
+#
+#   emucap-cemu-host --rom <game.wuhb|.rpx|.wua|.wud|.wux> [--display]
+#
+# Cemu reads its profile from $XDG_CONFIG_HOME/Cemu and $XDG_DATA_HOME/Cemu. The wrapper points
+# both at the launch generation and seeds settings.xml (OpenGL renderer, no update check or
+# first-run dialogs, MLC inside the generation) and a GamePad controller profile, so VPADRead
+# returns data the producer can override. Encrypted titles need the operator's keys.txt
+# (EMUCAP_CEMU_KEYS). It needs an X display (Xvfb works).
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+CEMU="${EMUCAP_CEMU_EXE:-$HERE/Cemu}"
+CONTENT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rom|--path) CONTENT="$2"; shift 2 ;;
+    --display) shift ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$CONTENT" ] || { echo "--rom is required" >&2; exit 2; }
+HOME_DIR="${EMUCAP_GENERATION_HOME:-$PWD}"
+export XDG_CONFIG_HOME="$HOME_DIR/config" XDG_DATA_HOME="$HOME_DIR/data" XDG_CACHE_HOME="$HOME_DIR/cache"
+CFG="$XDG_CONFIG_HOME/Cemu"
+DATA="$XDG_DATA_HOME/Cemu"
+mkdir -p "$CFG/controllerProfiles" "$DATA/mlc01" "$XDG_CACHE_HOME/Cemu"
+[ -z "${EMUCAP_CEMU_KEYS:-}" ] || cp "$EMUCAP_CEMU_KEYS" "$DATA/keys.txt"
+cat >"$CFG/settings.xml" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<content>
+  <logflag>0</logflag>
+  <advanced_ppc_logging>false</advanced_ppc_logging>
+  <mlc_path>$DATA/mlc01</mlc_path>
+  <permanent_storage>false</permanent_storage>
+  <check_update>false</check_update>
+  <receive_untested_updates>false</receive_untested_updates>
+  <show_icon_column>false</show_icon_column>
+  <fullscreen>false</fullscreen>
+  <proxy_server></proxy_server>
+  <disable_screensaver>false</disable_screensaver>
+  <play_boot_sound>false</play_boot_sound>
+  <GamePaths/>
+  <Graphic>
+    <api>0</api>
+    <VSync>0</VSync>
+    <AsyncCompile>false</AsyncCompile>
+  </Graphic>
+  <Audio>
+    <api>0</api>
+    <TVVolume>0</TVVolume>
+    <PadVolume>0</PadVolume>
+  </Audio>
+</content>
+EOF
+cat >"$CFG/controllerProfiles/controller0.xml" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<emulated_controller>
+  <type>Wii U GamePad</type>
+  <controller>
+    <api>Keyboard</api>
+    <uuid>keyboard</uuid>
+    <display_name>Keyboard</display_name>
+  </controller>
+</emulated_controller>
+EOF
+cd "$HOME_DIR"
+exec "$CEMU" -g "$CONTENT"

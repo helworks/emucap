@@ -1,0 +1,4 @@
+CEMU_REPO=https://github.com/cemu-project/Cemu.git
+CEMU_TAG=v2.6
+CEMU_COMMIT=a6fb0a48eb437a8a41c13b782ac8ae0433bf8f98
+CEMU_FMT_TAG=10.2.1
