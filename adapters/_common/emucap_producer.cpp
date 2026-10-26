@@ -576,7 +576,8 @@ std::string Producer::err(uint64_t id, const char* kind, const std::string& mess
 static const char* kMethods[] = {
 	"hello", "status", "get_rom_info", "get_state", "read_memory", "write_memory",
 	"read_memory_batch", "pause", "resume", "step", "set_input", "screenshot",
-	"save_state", "load_state", "poll_events"};
+	"save_state", "load_state", "poll_events", "list_breakpoints",
+	"clear_all_breakpoints"};
 
 Json Producer::execution_limits() const {
 	Json limits = Json::object();
@@ -1279,6 +1280,17 @@ std::string Producer::run_job(const std::shared_ptr<Job>& job) {
 		r.set("status", Json("completed"));
 		r.set("reset", Json("completed"));
 		r.set("state", Json(state));
+		return ok(id, r);
+	}
+	if (method == "list_breakpoints") {
+		Json r = Json::object();
+		r.set("breakpoints", Json::array());
+		return ok(id, r);
+	}
+	if (method == "clear_all_breakpoints") {
+		Json r = Json::object();
+		r.set("status", Json("completed"));
+		r.set("cleared", Json(0));
 		return ok(id, r);
 	}
 	if (method == "poll_events") {

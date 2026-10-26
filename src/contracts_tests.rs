@@ -551,6 +551,8 @@ fn melonds_producer_advertisement() {
         "save_state",
         "load_state",
         "poll_events",
+        "list_breakpoints",
+        "clear_all_breakpoints",
         "reset",
     ]
     .into_iter()
