@@ -38,7 +38,20 @@ impl McpProcess {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());
-        let mut child = command.spawn().expect("spawn MCP server");
+        // A freshly copied binary can fail with ETXTBSY while a concurrently forked test child
+        // still holds the copy's write descriptor between fork and exec; retry briefly.
+        let mut attempts = 0;
+        let mut child = loop {
+            match command.spawn() {
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::ExecutableFileBusy && attempts < 50 =>
+                {
+                    attempts += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                result => break result.expect("spawn MCP server"),
+            }
+        };
         let stdin = child.stdin.take().expect("MCP stdin");
         let stdout = child.stdout.take().expect("MCP stdout");
         let (sender, responses) = mpsc::channel();
