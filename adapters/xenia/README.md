@@ -31,11 +31,15 @@ None for an unencrypted homebrew `.xex`. Retail discs and packages are the opera
   `--gpu=vulkan --apu=nop --hid=nop --discord=false --mute=true`.
 - `step` counts guest swaps on the command processor thread. A frozen stop parks that thread at
   the swap and suspends every guest thread (Xenia's debugger pause, without pausing the command
-  processor). Guest threads run on host threads between swaps, so frame contents are not
-  repeatable across launches.
-- No savestates: Xenia's experimental `Emulator::RestoreFromFile` terminates the running title and
-  cannot continue it in the same process. No controlled start: the title starts before the
-  producer can freeze it.
+  processor or the audio system, whose `Pause()` waits on its worker). If a guest thread holds the
+  global critical region for 2 s the stop parks the command processor only. Guest threads run on
+  host threads between swaps, so frame contents are not repeatable across launches.
+- No savestates. Xenia's experimental `Emulator::SaveToFile` captures each running guest thread
+  after `Processor::StepToGuestSafePoint`, which needs the stack walker, and
+  `StackWalker::Create` is unimplemented on POSIX (`cpu/stack_walker_posix.cc` returns null), so
+  the Linux build cannot capture thread state. Save and restore also pause the command processor
+  through its own thread, the thread a frozen stop parks. No controlled start: the title starts
+  before the producer can freeze it.
 - Buttons: `a b x y up down left right start back lb rb ls rs guide` (XInput gamepad, user 0).
 - Memory: `main` is guest physical memory (512 MiB, batch reads); `vm` is the title's 32-bit
   virtual address space (committed pages only).

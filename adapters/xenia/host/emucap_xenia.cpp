@@ -170,11 +170,11 @@ public:
 	}
 	bool supports_state() const override { return false; }
 	bool save_state(std::vector<uint8_t>&, std::string& error) override {
-		error = "Xenia savestates are not wired: Emulator::RestoreFromFile terminates the title and cannot resume it in a running process";
+		error = "Xenia savestates are not available on Linux: saving guest threads needs the stack walker, which is unimplemented on POSIX";
 		return false;
 	}
 	bool load_state(const std::vector<uint8_t>&, std::string& error) override {
-		error = "Xenia savestates are not wired";
+		error = "Xenia savestates are not available on Linux";
 		return false;
 	}
 	bool capture(FrameImage& image, std::string& error) override {
@@ -241,7 +241,7 @@ public:
 		Json notes = Json::object();
 		notes.set("frames", Json("step counts guest VdSwap packets executed by the command processor; guest threads run on host threads between them, so frame contents are not repeatable"));
 		notes.set("frozen", Json("a frozen stop parks the command processor at the swap and suspends every guest thread (Xenia's debugger pause)"));
-		notes.set("savestates", Json("not wired: Xenia's experimental savestates cannot restore into a running title"));
+		notes.set("savestates", Json("unavailable: Xenia's experimental savestates step guest threads to safe points with the stack walker, which is unimplemented on POSIX"));
 		notes.set("screenshot", Json("guest output image of the last swap (Vulkan presenter capture)"));
 		notes.set("input", Json("XInput gamepad, user 0; Xenia's own input drivers are bypassed for user 0"));
 		notes.set("memory", Json("main = guest physical memory (512 MiB), vm = title virtual address space"));

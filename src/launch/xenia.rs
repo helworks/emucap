@@ -4,8 +4,8 @@
 //! backends) with its storage, content and cache roots inside the launch generation. The producer
 //! inside Xenia offers a frame boundary after every guest swap on the command processor thread and
 //! suspends guest threads at frozen stops. Xenia runs guest threads on host threads, its
-//! savestates cannot restore into a running title, and the title starts before the producer can
-//! freeze it, so there are no savestates and no controlled start.
+//! experimental savestates need a stack walker the POSIX build does not implement, and the title
+//! starts before the producer can freeze it, so there are no savestates and no controlled start.
 
 use super::producer::ProducerAdapter;
 
