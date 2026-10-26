@@ -436,6 +436,10 @@ pub(super) fn adapter_binary_precondition_for(
         "pcsx2" => pcsx2_binary_precondition(root),
         "psoxide" => psoxide_precondition(root, display),
         "xemu" => super::xemu::precondition(root),
+        producer if super::producers::is_producer(producer) => super::producers::precondition(
+            super::producers::producer_for(producer).expect("registered producer"),
+            root,
+        ),
         _ => serde_json::Value::Null,
     }
 }
@@ -534,6 +538,9 @@ pub(super) fn build_required_precondition(
                 .as_str()
                 .unwrap_or("adapters/xemu/build.sh")
         )),
+        producer if super::producers::is_producer(producer) => super::producers::build_required(
+            super::producers::producer_for(producer).expect("registered producer"),
+        ),
         _ => serde_json::Value::Null,
     }
 }
@@ -960,8 +967,20 @@ pub(crate) fn make_launch_plan(port: Option<u16>, args: &LaunchPlanArgs) -> serd
             "listening_port": p,
         });
     }
-    let (adapter, force_module) =
-        adapter_for_system_and_backend(system, args.pc98_backend, args.psx_backend);
+    if args.nds_backend.is_some() && system != "nds" {
+        return serde_json::json!({
+            "ok": false,
+            "ready_to_launch": false,
+            "inference": inference,
+            "reason": "nds_backend is supported only for Nintendo DS",
+            "listening_port": p,
+        });
+    }
+    let (adapter, force_module) = super::system::select_nds_backend(
+        system,
+        args.nds_backend,
+        adapter_for_system_and_backend(system, args.pc98_backend, args.psx_backend),
+    );
     if args.play_tape.is_some() && adapter != "psoxide" {
         return serde_json::json!({
             "ok": false,
@@ -990,6 +1009,11 @@ pub(crate) fn make_launch_plan(port: Option<u16>, args: &LaunchPlanArgs) -> serd
         preferred_launcher_args["start_frozen"] = serde_json::json!(true);
     } else if adapter == "xemu" {
         preferred_launcher_args["display"] = serde_json::json!(false);
+        preferred_launcher_args["start_frozen"] = serde_json::json!(true);
+    } else if super::producers::is_producer(adapter) {
+        if adapter == "melonds" {
+            preferred_launcher_args["nds_backend"] = serde_json::json!("melonds");
+        }
         preferred_launcher_args["start_frozen"] = serde_json::json!(true);
     } else if adapter == "psoxide" {
         preferred_launcher_args["psx_backend"] = serde_json::json!("psoxide");
@@ -1249,8 +1273,8 @@ pub(crate) fn make_launch_plan(port: Option<u16>, args: &LaunchPlanArgs) -> serd
             serde_json::Value::Null
         },
         "start_frozen_contract": {
-            "supported": adapter == "mesen2" || adapter == "mednafen" || adapter == "np2kai" || adapter == "xemu" || adapter == "psoxide",
-            "boundary": if adapter == "mesen2" || adapter == "mednafen" || adapter == "np2kai" || adapter == "xemu" || adapter == "psoxide" { serde_json::json!("pre_first_instruction") } else { serde_json::Value::Null },
+            "supported": adapter == "mesen2" || adapter == "mednafen" || adapter == "np2kai" || adapter == "xemu" || adapter == "psoxide" || super::producers::is_producer(adapter),
+            "boundary": if adapter == "mesen2" || adapter == "mednafen" || adapter == "np2kai" || adapter == "xemu" || adapter == "psoxide" || super::producers::is_producer(adapter) { serde_json::json!("pre_first_instruction") } else { serde_json::Value::Null },
             "request_with": "launch(..., start_frozen:true)",
             "repeatable_initial_conditions": system == "snes" || system == "md" || adapter == "np2kai"
         },

@@ -161,7 +161,18 @@ pub(crate) fn make_launch(
             "system": system,
         });
     }
-    let (adapter, module) = adapter_for_system_and_backend(system, a.pc98_backend, a.psx_backend);
+    if a.nds_backend.is_some() && system != "nds" {
+        return serde_json::json!({
+            "launched": false,
+            "reason": "nds_backend is supported only for Nintendo DS",
+            "system": system,
+        });
+    }
+    let (adapter, module) = super::system::select_nds_backend(
+        system,
+        a.nds_backend,
+        adapter_for_system_and_backend(system, a.pc98_backend, a.psx_backend),
+    );
     if a.play_tape.is_some() && adapter != "psoxide" {
         return serde_json::json!({
             "launched": false,
@@ -202,6 +213,7 @@ pub(crate) fn make_launch(
         && adapter != "np2kai"
         && adapter != "xemu"
         && adapter != "psoxide"
+        && !super::producers::is_producer(adapter)
     {
         return serde_json::json!({
             "launched": false,
@@ -486,6 +498,13 @@ pub(crate) fn make_launch(
         "pcsx2" => launch_pcsx2(port, producer_key, runtime, effective_args),
         "dolphin" => launch_dolphin(port, producer_key, runtime, system, effective_args),
         "xemu" => super::xemu::launch_xemu(port, producer_key, runtime, effective_args),
+        producer if super::producers::is_producer(producer) => super::producers::launch(
+            super::producers::producer_for(producer).expect("registered producer"),
+            port,
+            producer_key,
+            runtime,
+            effective_args,
+        ),
         _ => serde_json::json!({
             "launched": false,
             "reason": format!("system {system} is not supported by the Rust launcher"),

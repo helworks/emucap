@@ -988,6 +988,11 @@ pub(crate) struct LaunchPlanArgs {
     /// steps, input tapes, display hashes, HLE BIOS).
     #[serde(default)]
     pub(crate) psx_backend: Option<PsxBackendArgs>,
+    /// Nintendo DS execution backend. Omit for DeSmuME; select melonds
+    /// explicitly for the in-process melonDS host (frame steps, savestates,
+    /// FreeBIOS direct boot).
+    #[serde(default)]
+    pub(crate) nds_backend: Option<NdsBackendArgs>,
     /// Show the Play-session window when display:true with play_tape; the plan
     /// then checks the PSoXide window binary. Default: false.
     #[serde(default)]
@@ -1024,6 +1029,10 @@ pub(crate) struct LaunchArgs {
     /// and is never selected automatically.
     #[serde(default)]
     pub(crate) psx_backend: Option<PsxBackendArgs>,
+    /// Nintendo DS execution backend. Omit for DeSmuME. melonDS is an
+    /// explicit choice and is never selected automatically.
+    #[serde(default)]
+    pub(crate) nds_backend: Option<NdsBackendArgs>,
     /// Absolute path of the PSoXide Play-session input tape. PSoXide backend
     /// only; required with display:true, where the window records to and
     /// replays from this tape. With a headless launch the host replays it.
@@ -1085,6 +1094,13 @@ pub(crate) enum Pc98BackendArgs {
 pub(crate) enum PsxBackendArgs {
     Mednafen,
     Psoxide,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum NdsBackendArgs {
+    Desmume,
+    Melonds,
 }
 
 impl Pc98SoundBoardArgs {

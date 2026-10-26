@@ -483,6 +483,11 @@ pub(crate) fn runtime_paths(port: Option<u16>) -> serde_json::Value {
             "ppsspp": {
                 "build": abs_path_json(&root, &["adapters", "ppsspp", "build.sh"]),
             },
+            "melonds": {
+                "build": abs_path_json(&root, &["adapters", "melonds", "build.sh"]),
+                "binary_env": "EMUCAP_MELONDS_BIN",
+                "select_with": "nds_backend=melonds",
+            },
             "psoxide": {
                 "build": "cargo build --release -p psoxide-emucap (in a PSoXide-emulator checkout)",
                 "adapter_binary": abs_path_json(&root, &["target", "release", if cfg!(windows) { "psoxide-emucap-host.exe" } else { "psoxide-emucap-host" }]),
@@ -678,6 +683,7 @@ fn build_supported_systems_value() -> serde_json::Value {
             "system": "nds",
             "aliases": ["ds", "nintendo-ds", "desmume"],
             "adapter": "desmume_nds",
+            "selectable_backends": ["desmume_nds", "melonds"],
             "content": ["nds"],
             "notes": "The shared ARM9/ARM7 scheduler supports exact VBlank-start frame stepping as well as routed instruction stepping. Frozen best-effort call stacks use PC/LR and the APCS r11 chain for the selected CPU."
         },

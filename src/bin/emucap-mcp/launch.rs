@@ -44,6 +44,8 @@ mod pc98;
 mod pc98_preconditions;
 #[path = "launch/plan.rs"]
 mod plan;
+#[path = "launch/producers.rs"]
+mod producers;
 #[path = "launch/recording.rs"]
 mod recording;
 #[path = "launch/run.rs"]

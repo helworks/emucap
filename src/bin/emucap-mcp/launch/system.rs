@@ -82,6 +82,19 @@ pub(super) fn adapter_for_system_and_backend(
     }
 }
 
+/// Apply the explicit Nintendo DS backend choice to a routed adapter.
+pub(super) fn select_nds_backend(
+    system: &str,
+    nds_backend: Option<crate::args::NdsBackendArgs>,
+    routed: (&'static str, Option<&'static str>),
+) -> (&'static str, Option<&'static str>) {
+    if system == "nds" && nds_backend == Some(crate::args::NdsBackendArgs::Melonds) {
+        ("melonds", None)
+    } else {
+        routed
+    }
+}
+
 pub(super) fn adapter_supports_sound(adapter: &str) -> bool {
     matches!(
         adapter,
