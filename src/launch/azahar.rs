@@ -16,6 +16,7 @@ pub const ADAPTER: ProducerAdapter = ProducerAdapter {
     content_extensions: &["3dsx", "3ds", "cci", "cxi", "app", "elf", "axf"],
     accepts_directory: false,
     content_flag: "--rom",
+    controlled_start: true,
     build_script: "adapters/azahar/build.sh",
 };
 

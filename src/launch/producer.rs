@@ -33,6 +33,8 @@ pub struct ProducerAdapter {
     pub content_flag: &'static str,
     /// The adapter's `build.sh`, repo-relative.
     pub build_script: &'static str,
+    /// Whether the host parks before the first emulated instruction for `start_frozen`.
+    pub controlled_start: bool,
 }
 
 pub struct Launch<'a> {

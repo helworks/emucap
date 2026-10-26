@@ -10,6 +10,7 @@ const FAKE: ProducerAdapter = ProducerAdapter {
     content_extensions: &["fk", "fkx"],
     accepts_directory: false,
     content_flag: "--rom",
+    controlled_start: true,
     build_script: "adapters/fakehost/build.sh",
 };
 

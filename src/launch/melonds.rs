@@ -15,6 +15,7 @@ pub const ADAPTER: ProducerAdapter = ProducerAdapter {
     content_extensions: &["nds"],
     accepts_directory: false,
     content_flag: "--rom",
+    controlled_start: true,
     build_script: "adapters/melonds/build.sh",
 };
 
