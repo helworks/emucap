@@ -115,6 +115,8 @@ pub struct Launch<'a> {
     pub session_token: Option<&'a str>,
     pub runtime: Option<RuntimeEnv<'a>>,
     pub display: bool,
+    /// `launch(start_frozen)`: adopt the debugger's pre-first-instruction pause.
+    pub start_frozen: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -325,6 +327,9 @@ pub fn launch_spec(launch: &Launch<'_>, runtime_home: &Path) -> LaunchSpec {
     }
     if let Some(token) = launch.session_token {
         spec = spec.env("EMUCAP_SESSION_TOKEN", token);
+    }
+    if launch.start_frozen {
+        spec = spec.env("EMUCAP_START_FROZEN", "1");
     }
     spec.runtime_env(launch.runtime)
 }

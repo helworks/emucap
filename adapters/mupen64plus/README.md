@@ -98,6 +98,27 @@ sample at this boundary. `debug.read_input_polls` returns final controller words
 sequence cursor, generation identity and explicit ring-buffer gaps. The 4096-entry history and
 counter continue across load/reset and restart with the launch generation.
 
+### LLE profile and libdragon titles
+
+`EMUCAP_N64_RENDERER=lle` loads the cxd4 RSP and angrylion RDP plugins, reports one frame per
+vertical interrupt, and hands libdragon's IPL3 pre-initialized RDRAM. Core patches 0018-0027
+make libdragon ROMs run under it: COP0 TLB-group decoding, XKPHYS addressing, LLD/SCD, MI repeat
+mode, a yielded RSP that keeps running and delivers its SET_INTR interrupts (rspq syncpoints),
+RDP interrupts only on SYNC_FULL, interrupt checks that respect EXL/IE (libdragon's nested
+COP1-unusable exception inside interrupt handlers), and bounded PI/RDRAM register reads.
+
+### Controlled start (`start_frozen`)
+
+`launch(start_frozen:true)` adopts the debugger's initial pause instead of releasing the guest:
+the adapter becomes ready before the first R4300 instruction, `status.state` is `frozen`,
+`status.launch_start` is `{controlled:true, boundary:"pre_first_instruction"}`, and
+`host_features` includes `controlled_start`. The first `step` therefore also covers renderer
+start-up. A controlled start disables `RandomizeInterrupt` (PI/SI jitter seeded from the clock)
+and seeds Controller Pak IDs with a fixed value (patch 0026), so two cold boots of the same ROM
+replay identically: the demodisc libdragon ROM matched registers, all 8 MiB of RDRAM and the
+screenshot at frames 1, 601 and 1801 across separate launches. Without `start_frozen` the
+launch keeps the earlier behaviour (released to the first rendered frame, randomized timing).
+
 ### Native compatibility and build identity
 
 `M64P_HOST_API` identifies the published host ABI generation. Keep it unchanged for

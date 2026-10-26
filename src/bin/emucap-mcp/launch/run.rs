@@ -213,6 +213,7 @@ pub(crate) fn make_launch(
         && adapter != "np2kai"
         && adapter != "xemu"
         && adapter != "psoxide"
+        && adapter != "mupen64plus"
         && !super::producers::is_producer(adapter)
     {
         return serde_json::json!({
@@ -878,6 +879,7 @@ pub(super) fn launch_mupen64plus(
         session_token: token,
         runtime: Some(runtime),
         display,
+        start_frozen: a.start_frozen,
     };
     match mupen64plus_launch::launch(&launch) {
         Ok(launched) => serde_json::json!({

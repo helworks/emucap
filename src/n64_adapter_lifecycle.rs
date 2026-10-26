@@ -33,6 +33,7 @@ pub(super) fn readiness_for(
     initial_released: bool,
     execution_terminal: bool,
     rendered_frame_seen: bool,
+    controlled_start: bool,
 ) -> AdapterReadiness {
     if execution_terminal {
         AdapterReadiness::Terminated
@@ -40,7 +41,8 @@ pub(super) fn readiness_for(
         AdapterReadiness::WaitingForDebugger
     } else if !initial_released {
         AdapterReadiness::WaitingForInitialRelease
-    } else if !rendered_frame_seen {
+    } else if !rendered_frame_seen && !controlled_start {
+        // A controlled start is ready at the debugger's pre-first-instruction pause.
         AdapterReadiness::WaitingForFirstRenderedFrame
     } else {
         AdapterReadiness::Ready
@@ -54,6 +56,7 @@ pub(super) fn current_readiness(display: bool) -> AdapterReadiness {
         INITIAL_RELEASED.load(Ordering::Acquire),
         EXECUTION_TERMINAL.load(Ordering::Acquire),
         FRAME_SEEN.load(Ordering::Acquire),
+        CONTROLLED_START.load(Ordering::Acquire),
     )
 }
 

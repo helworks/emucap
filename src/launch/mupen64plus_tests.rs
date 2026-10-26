@@ -135,6 +135,7 @@ fn launch_spec_forwards_renderer_profile_and_frame_boundary() {
         session_token: None,
         runtime: None,
         display: false,
+        start_frozen: false,
     };
     let env_of = |spec: &LaunchSpec, key: &str| {
         spec.env
@@ -152,6 +153,39 @@ fn launch_spec_forwards_renderer_profile_and_frame_boundary() {
     assert_eq!(env_of(&spec, RENDERER_ENV).as_deref(), Some("lle"));
     assert_eq!(env_of(&spec, FRAME_BOUNDARY_ENV).as_deref(), Some("vi"));
     assert_eq!(env_of(&spec, RDRAM_PREINIT_ENV).as_deref(), Some("1"));
+}
+
+#[test]
+fn launch_spec_requests_a_controlled_start_only_when_frozen() {
+    let temp = tempfile::tempdir().unwrap();
+    let binary = temp.path().join("emucap-mupen64plus");
+    let rom = temp.path().join("test.z64");
+    let log = temp.path().join("n64.log");
+    let mut launch = Launch {
+        binary: &binary,
+        repo_root: temp.path(),
+        root: temp.path(),
+        content: &rom,
+        log_path: &log,
+        port: 47890,
+        name: None,
+        session_token: None,
+        runtime: None,
+        display: false,
+        start_frozen: false,
+    };
+    let frozen = |spec: &LaunchSpec| {
+        spec.env
+            .iter()
+            .find(|(name, _)| name == "EMUCAP_START_FROZEN")
+            .map(|(_, value)| value.clone())
+    };
+    assert_eq!(frozen(&launch_spec(&launch, temp.path())), None);
+    launch.start_frozen = true;
+    assert_eq!(
+        frozen(&launch_spec(&launch, temp.path())).as_deref(),
+        Some("1")
+    );
 }
 
 #[test]
@@ -188,6 +222,7 @@ fn launch_spec_isolated_and_headless_by_default() {
         session_token: Some("token"),
         runtime: None,
         display: false,
+        start_frozen: false,
     };
     let spec = launch_spec(&launch, &runtime_home);
     assert_eq!(

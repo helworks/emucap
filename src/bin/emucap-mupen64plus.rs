@@ -65,13 +65,19 @@ fn main() -> anyhow::Result<()> {
     });
 
     let release_host = Arc::clone(&host);
+    let controlled_start = emucap::n64_adapter::start_frozen_requested();
     let release = std::thread::spawn(move || {
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         loop {
-            let result = release_host
+            let mut host = release_host
                 .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .release_initial_pause();
+                .unwrap_or_else(|error| error.into_inner());
+            let result = if controlled_start {
+                host.adopt_initial_pause()
+            } else {
+                host.release_initial_pause()
+            };
+            drop(host);
             match result {
                 Ok(()) => return Ok(()),
                 Err(error) if std::time::Instant::now() < deadline => {

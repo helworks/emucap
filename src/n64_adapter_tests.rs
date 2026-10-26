@@ -11,27 +11,43 @@ fn frame_gate_test_lock() -> &'static std::sync::Mutex<()> {
 #[test]
 fn readiness_requires_the_first_rendered_frame_in_both_modes() {
     assert_eq!(
-        readiness_for(true, false, false, false, false),
+        readiness_for(true, false, false, false, false, false),
         AdapterReadiness::WaitingForDebugger
     );
     assert_eq!(
-        readiness_for(true, true, false, false, false),
+        readiness_for(true, true, false, false, false, false),
         AdapterReadiness::WaitingForInitialRelease
     );
     assert_eq!(
-        readiness_for(true, true, true, false, false),
+        readiness_for(true, true, true, false, false, false),
         AdapterReadiness::WaitingForFirstRenderedFrame
     );
     assert_eq!(
-        readiness_for(true, true, true, false, true),
+        readiness_for(true, true, true, false, true, false),
         AdapterReadiness::Ready
     );
     assert_eq!(
-        readiness_for(false, true, true, false, false),
+        readiness_for(false, true, true, false, false, false),
         AdapterReadiness::WaitingForFirstRenderedFrame
     );
     assert_eq!(
-        readiness_for(false, true, true, true, true),
+        readiness_for(false, true, true, true, true, false),
+        AdapterReadiness::Terminated
+    );
+}
+
+#[test]
+fn controlled_start_is_ready_at_the_adopted_initial_pause() {
+    assert_eq!(
+        readiness_for(false, true, false, false, false, true),
+        AdapterReadiness::WaitingForInitialRelease
+    );
+    assert_eq!(
+        readiness_for(false, true, true, false, false, true),
+        AdapterReadiness::Ready
+    );
+    assert_eq!(
+        readiness_for(true, true, true, true, false, true),
         AdapterReadiness::Terminated
     );
 }

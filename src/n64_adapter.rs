@@ -143,6 +143,15 @@ const ACTIVE_EXCEPTIONS: &[&str] = &[
 
 static DEBUG_READY: AtomicBool = AtomicBool::new(false);
 static INITIAL_RELEASED: AtomicBool = AtomicBool::new(false);
+/// `launch(start_frozen)`: the session was adopted at the debugger's initial pause, before the
+/// first R4300 instruction, instead of being released to the first rendered frame.
+static CONTROLLED_START: AtomicBool = AtomicBool::new(false);
+/// Environment flag the launcher sets for `launch(start_frozen:true)`.
+pub const START_FROZEN_ENV: &str = "EMUCAP_START_FROZEN";
+
+pub fn start_frozen_requested() -> bool {
+    std::env::var(START_FROZEN_ENV).ok().as_deref() == Some("1")
+}
 static EXECUTION_TERMINAL: AtomicBool = AtomicBool::new(false);
 static UPDATE_COUNT: AtomicU64 = AtomicU64::new(0);
 static FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -320,6 +329,37 @@ impl Mupen64PlusHost {
         Ok(())
     }
 
+    /// Keep the debugger's initial pause as the session entry point (`start_frozen`). The core
+    /// starts paused under the debugger before its first instruction; adopting that pause makes
+    /// the adapter ready there without running to the first rendered frame.
+    pub fn adopt_initial_pause(&mut self) -> N64Result<()> {
+        wait_until("debugger initialization", OPERATION_DEADLINE, || {
+            DEBUG_READY.load(Ordering::Acquire)
+        })?;
+        let paused =
+            unsafe { (self.api.debug_get_state)(M64P_DBG_RUN_STATE) } == M64P_DBG_RUNSTATE_PAUSED;
+        if !paused {
+            return Err(N64Error::BadState(
+                "the debugger released the guest before the controlled start was adopted".into(),
+            ));
+        }
+        self.frozen = true;
+        CONTROLLED_START.store(true, Ordering::Release);
+        INITIAL_RELEASED.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    fn host_features(&self) -> Vec<&'static str> {
+        let mut features = Vec::new();
+        if self.launch_id.is_some() {
+            features.push("scoped_controller_input");
+        }
+        if CONTROLLED_START.load(Ordering::Acquire) {
+            features.push("controlled_start");
+        }
+        features
+    }
+
     pub fn terminal_reason() -> Option<String> {
         if observation::CONTROL_UNVERIFIED.load(Ordering::Acquire) {
             return Some("execution_speed policy is unverified".into());
@@ -417,7 +457,7 @@ impl Mupen64PlusHost {
             "input_axes": input::axes_capability(),
             "input_poll_capability":poll::capability(),
             "input_poll_count":poll::POLL_COUNT.load(Ordering::Acquire),
-            "host_features": if self.launch_id.is_some() { vec!["scoped_controller_input"] } else { vec![] },
+            "host_features": self.host_features(),
             "execution_limits": {
                 "max_sync_advance_count": MAX_STEP_COUNT,
                 "max_sync_operation_ms":
@@ -481,7 +521,7 @@ impl Mupen64PlusHost {
             "input_axes": input::axes_capability(),
             "input_poll_capability":poll::capability(),
             "input_poll_count":poll::POLL_COUNT.load(Ordering::Acquire),
-            "host_features": if self.launch_id.is_some() { vec!["scoped_controller_input"] } else { vec![] },
+            "host_features": self.host_features(),
             "execution_limits": {
                 "max_sync_advance_count": MAX_STEP_COUNT,
                 "max_sync_operation_ms":
@@ -503,6 +543,12 @@ impl Mupen64PlusHost {
                 "state".into(),
                 json!(if self.frozen { "frozen" } else { "running" }),
             );
+            if CONTROLLED_START.load(Ordering::Acquire) {
+                object.insert(
+                    "launch_start".into(),
+                    json!({"controlled": true, "boundary": "pre_first_instruction"}),
+                );
+            }
             if let Ok(pacing) = self.native_pacing() {
                 object.insert("execution_speed".into(), pacing.public());
             }

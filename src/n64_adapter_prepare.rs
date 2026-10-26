@@ -101,6 +101,11 @@ impl Mupen64PlusHost {
         set_config_int(&api, core_section, b"R4300Emulator\0", M64TYPE_INT, 0)?;
         set_config_int(&api, core_section, b"EnableDebugger\0", M64TYPE_BOOL, 1)?;
         set_config_int(&api, core_section, b"OnScreenDisplay\0", M64TYPE_BOOL, 0)?;
+        if super::start_frozen_requested() {
+            // RandomizeInterrupt seeds PI/SI jitter from the wall clock; a controlled start must
+            // replay the same cold boot.
+            set_config_int(&api, core_section, b"RandomizeInterrupt\0", M64TYPE_BOOL, 0)?;
+        }
         set_config_string(
             &api,
             core_section,
