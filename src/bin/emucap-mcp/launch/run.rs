@@ -207,17 +207,7 @@ pub(crate) fn make_launch(
         });
     }
     let repeatable = a.execution_profile == Some(LaunchExecutionProfileArgs::Repeatable);
-    if a.start_frozen
-        && adapter != "mesen2"
-        && adapter != "mednafen"
-        && adapter != "np2kai"
-        && adapter != "xemu"
-        && adapter != "psoxide"
-        && adapter != "mupen64plus"
-        && adapter != "flycast"
-        && adapter != "dolphin"
-        && !super::producers::is_producer(adapter)
-    {
+    if a.start_frozen && !adapter_supports_start_frozen(adapter) {
         return serde_json::json!({
             "launched": false,
             "reason": "start_frozen is not supported by the selected adapter",

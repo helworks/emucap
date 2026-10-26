@@ -105,6 +105,29 @@ pub(super) fn select_nds_backend(
     }
 }
 
+/// Adapters whose host can stop before the first emulated instruction
+/// (`launch(..., start_frozen:true)` reports `launch_start.boundary = pre_first_instruction`).
+pub(super) fn adapter_supports_start_frozen(adapter: &str) -> bool {
+    matches!(
+        adapter,
+        "mesen2"
+            | "mednafen"
+            | "np2kai"
+            | "xemu"
+            | "psoxide"
+            | "mupen64plus"
+            | "flycast"
+            | "dolphin"
+    ) || super::producers::supports_start_frozen(adapter)
+}
+
+/// Adapters whose preferred launch starts frozen. Every controlled-start adapter does, except the
+/// long-established Mesen2 and Mednafen sessions, which keep their free-running default and
+/// advertise the frozen start through `start_frozen_contract`.
+pub(super) fn adapter_defaults_start_frozen(adapter: &str) -> bool {
+    adapter_supports_start_frozen(adapter) && !matches!(adapter, "mesen2" | "mednafen")
+}
+
 pub(super) fn adapter_supports_sound(adapter: &str) -> bool {
     matches!(
         adapter,

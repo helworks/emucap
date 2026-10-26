@@ -3712,3 +3712,112 @@ fn nds_backend_melonds_selects_the_melonds_producer_only_for_nds() {
     assert!(super::producers::is_producer("melonds"));
     assert!(!super::producers::is_producer("desmume_nds"));
 }
+
+fn start_frozen_plan(file: &str, system: &str, nds_backend: Option<crate::args::NdsBackendArgs>) -> serde_json::Value {
+    let dir = tempfile::tempdir().unwrap();
+    let content = dir.path().join(file);
+    std::fs::write(&content, b"content").unwrap();
+    make_launch_plan(
+        Some(47900),
+        &LaunchPlanArgs {
+            content_path: Some(content.display().to_string()),
+            system: Some(system.into()),
+            pc98_backend: None,
+            psx_backend: None,
+            nds_backend,
+            display: None,
+            play_tape: None,
+            indirect_media_approval: None,
+        },
+    )
+}
+
+#[test]
+fn controlled_start_adapters_advertise_and_default_start_frozen() {
+    for (file, system, backend, adapter) in [
+        ("game.z64", "n64", None, "mupen64plus"),
+        ("game.elf", "dc", None, "flycast"),
+        ("game.gcm", "gamecube", None, "dolphin"),
+        ("game.iso", "wii", None, "dolphin"),
+        ("game.nds", "nds", Some(crate::args::NdsBackendArgs::Melonds), "melonds"),
+        ("game.3dsx", "3ds", None, "azahar"),
+        ("game.iso", "xbox", None, "xemu"),
+    ] {
+        let plan = start_frozen_plan(file, system, backend);
+        assert_eq!(plan["adapter"], adapter, "{system}: {plan}");
+        assert_eq!(plan["start_frozen_contract"]["supported"], true, "{adapter}");
+        assert_eq!(
+            plan["start_frozen_contract"]["boundary"], "pre_first_instruction",
+            "{adapter}"
+        );
+        assert_eq!(plan["start_frozen_contract"]["preferred"], true, "{adapter}");
+        assert_eq!(plan["preferred_launcher"]["args"]["start_frozen"], true, "{adapter}");
+    }
+}
+
+#[test]
+fn established_controlled_start_adapters_keep_a_running_default() {
+    for (file, system, adapter) in [("game.sfc", "snes", "mesen2"), ("game.md", "md", "mednafen")] {
+        let plan = start_frozen_plan(file, system, None);
+        assert_eq!(plan["adapter"], adapter);
+        assert_eq!(plan["start_frozen_contract"]["supported"], true, "{adapter}");
+        assert_eq!(plan["start_frozen_contract"]["preferred"], false, "{adapter}");
+        assert!(plan["preferred_launcher"]["args"].get("start_frozen").is_none(), "{adapter}");
+    }
+}
+
+#[test]
+fn hosts_without_a_controlled_start_neither_advertise_nor_default_it() {
+    for (file, system, adapter) in [
+        ("game.wuhb", "wiiu", "cemu"),
+        ("game.vpk", "psvita", "vita3k"),
+        ("game.self", "ps3", "rpcs3"),
+        ("game.xex", "x360", "xenia"),
+        ("game.pbp", "psp", "ppsspp"),
+        ("game.nds", "nds", "desmume_nds"),
+    ] {
+        let plan = start_frozen_plan(file, system, None);
+        assert_eq!(plan["adapter"], adapter);
+        assert_eq!(plan["start_frozen_contract"]["supported"], false, "{adapter}");
+        assert!(plan["start_frozen_contract"]["boundary"].is_null(), "{adapter}");
+        assert!(plan["preferred_launcher"]["args"].get("start_frozen").is_none(), "{adapter}");
+        assert_eq!(adapter_supports_start_frozen(adapter), false, "{adapter}");
+    }
+}
+
+#[test]
+fn controlled_launch_refuses_a_producer_without_a_controlled_start_before_spawn() {
+    let tmp = tempfile::tempdir().unwrap();
+    let content = tmp.path().join("game.wuhb");
+    std::fs::write(&content, b"rpx").unwrap();
+    let mut link = NotConnectedPortLink::new();
+
+    let out = make_launch(
+        &mut link,
+        &LaunchArgs {
+            content_path: content.display().to_string(),
+            content_path2: None,
+            system: Some("wiiu".into()),
+            pc98_backend: None,
+            psx_backend: None,
+            nds_backend: None,
+            play_tape: None,
+            indirect_media_approval: None,
+            name: None,
+            display: None,
+            sound: None,
+            pc98_sound_board: None,
+            start_frozen: true,
+            execution_profile: None,
+            replace: false,
+        },
+    );
+
+    assert_eq!(out["launched"], false, "{out}");
+    assert_eq!(
+        out["reason"],
+        "start_frozen is not supported by the selected adapter"
+    );
+    assert_eq!(out["adapter"], "cemu");
+    assert_eq!(link.calls, 1, "only the preflight status call is allowed");
+}

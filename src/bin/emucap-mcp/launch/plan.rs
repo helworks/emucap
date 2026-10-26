@@ -8,7 +8,8 @@ use super::*;
 #[cfg(test)]
 pub(super) use super::system::adapter_for_system;
 pub(super) use super::system::{
-    adapter_for_system_and_backend, adapter_supports_sound, normalize_system,
+    adapter_defaults_start_frozen, adapter_for_system_and_backend, adapter_supports_sound,
+    adapter_supports_start_frozen, normalize_system,
 };
 
 pub(super) fn same_path(a: &Path, b: &Path) -> bool {
@@ -1041,29 +1042,23 @@ pub(crate) fn make_launch_plan(port: Option<u16>, args: &LaunchPlanArgs) -> serd
     } else if adapter == "np2kai" {
         preferred_launcher_args["pc98_backend"] = serde_json::json!("np2kai");
         preferred_launcher_args["display"] = serde_json::json!(false);
-        preferred_launcher_args["start_frozen"] = serde_json::json!(true);
     } else if adapter == "xemu" {
         preferred_launcher_args["display"] = serde_json::json!(false);
-        preferred_launcher_args["start_frozen"] = serde_json::json!(true);
-    } else if super::producers::is_producer(adapter) {
-        if adapter == "melonds" {
-            preferred_launcher_args["nds_backend"] = serde_json::json!("melonds");
-        }
-        if super::producers::supports_start_frozen(adapter) {
-            preferred_launcher_args["start_frozen"] = serde_json::json!(true);
-        }
+    } else if adapter == "melonds" {
+        preferred_launcher_args["nds_backend"] = serde_json::json!("melonds");
     } else if adapter == "psoxide" {
         preferred_launcher_args["psx_backend"] = serde_json::json!("psoxide");
-        // A Play-session window starts running so the replay plays out on screen.
-        if !(display && args.play_tape.is_some()) {
-            preferred_launcher_args["start_frozen"] = serde_json::json!(true);
-        }
         if let Some(tape) = &args.play_tape {
             preferred_launcher_args["play_tape"] = serde_json::json!(tape);
         }
         if display {
             preferred_launcher_args["display"] = serde_json::json!(true);
         }
+    }
+    // A PSoXide Play-session window starts running so the replay plays out on screen.
+    let play_session_window = adapter == "psoxide" && display && args.play_tape.is_some();
+    if adapter_defaults_start_frozen(adapter) && !play_session_window {
+        preferred_launcher_args["start_frozen"] = serde_json::json!(true);
     }
     let environment_defaults = if adapter == "mame_pc98" {
         serde_json::json!({
@@ -1310,8 +1305,9 @@ pub(crate) fn make_launch_plan(port: Option<u16>, args: &LaunchPlanArgs) -> serd
             serde_json::Value::Null
         },
         "start_frozen_contract": {
-            "supported": adapter == "mesen2" || adapter == "mednafen" || adapter == "np2kai" || adapter == "xemu" || adapter == "psoxide" || super::producers::supports_start_frozen(adapter),
-            "boundary": if adapter == "mesen2" || adapter == "mednafen" || adapter == "np2kai" || adapter == "xemu" || adapter == "psoxide" || super::producers::supports_start_frozen(adapter) { serde_json::json!("pre_first_instruction") } else { serde_json::Value::Null },
+            "supported": adapter_supports_start_frozen(adapter),
+            "boundary": if adapter_supports_start_frozen(adapter) { serde_json::json!("pre_first_instruction") } else { serde_json::Value::Null },
+            "preferred": adapter_defaults_start_frozen(adapter) && !play_session_window,
             "request_with": "launch(..., start_frozen:true)",
             "repeatable_initial_conditions": system == "snes" || system == "md" || adapter == "np2kai"
         },
