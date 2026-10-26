@@ -1,0 +1,3 @@
+MELONDS_REPO=https://github.com/melonDS-emu/melonDS.git
+MELONDS_TAG=1.1
+MELONDS_COMMIT=b86390e4428bf38ce4c1ce0e9ca446d6d25955e8
