@@ -2950,7 +2950,7 @@ fn launch_sound_admission_matches_the_documented_adapters() {
 #[test]
 fn controlled_launch_refuses_an_unsupported_adapter_before_spawn() {
     let tmp = tempfile::tempdir().unwrap();
-    let content = tmp.path().join("game.v64");
+    let content = tmp.path().join("game.pbp");
     std::fs::write(&content, b"rom").unwrap();
     let mut link = NotConnectedPortLink::new();
 
@@ -2959,7 +2959,7 @@ fn controlled_launch_refuses_an_unsupported_adapter_before_spawn() {
         &LaunchArgs {
             content_path: content.display().to_string(),
             content_path2: None,
-            system: Some("n64".into()),
+            system: Some("psp".into()),
             pc98_backend: None,
             psx_backend: None,
             nds_backend: None,
@@ -2980,7 +2980,7 @@ fn controlled_launch_refuses_an_unsupported_adapter_before_spawn() {
         out["reason"],
         "start_frozen is not supported by the selected adapter"
     );
-    assert_eq!(out["adapter"], "mupen64plus");
+    assert_eq!(out["adapter"], "ppsspp");
     assert_eq!(link.calls, 1, "only the preflight status call is allowed");
 }
 
