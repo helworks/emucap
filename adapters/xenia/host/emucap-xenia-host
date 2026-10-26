@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# emucap-xenia-host: run the emucap-patched Xenia Canary with a generation-owned profile.
+#
+#   emucap-xenia-host --rom <title.xex|disc.iso> [--display]
+#
+# Xenia keeps its config, content and caches under --storage_root/--content_root/--cache_root;
+# the wrapper points all three at the launch generation, so a launch never reads or changes the
+# operator's Xenia profile. It selects the Vulkan renderer (Mesa lavapipe works under Xvfb), the
+# nop audio and input backends (the producer owns user 0) and turns Discord off. It needs an X
+# display.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+XENIA="${EMUCAP_XENIA_EXE:-$HERE/xenia_canary}"
+CONTENT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rom|--path) CONTENT="$2"; shift 2 ;;
+    --display) shift ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$CONTENT" ] || { echo "--rom is required" >&2; exit 2; }
+HOME_DIR="${EMUCAP_GENERATION_HOME:-$PWD}"
+STORAGE="$HOME_DIR/xenia"
+mkdir -p "$STORAGE/content" "$STORAGE/cache"
+cd "$HOME_DIR"
+exec "$XENIA" \
+  --storage_root="$STORAGE" --content_root="$STORAGE/content" --cache_root="$STORAGE/cache" \
+  --gpu=vulkan --apu=nop --hid=nop --discord=false --mute=true \
+  --log_file="$HOME_DIR/xenia.log" \
+  "$CONTENT"
