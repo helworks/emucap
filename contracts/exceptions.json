@@ -1566,6 +1566,72 @@
         "state.load.content_check": "none"
       },
       "verification": ["contract-test:azahar-producer-advertisement"]
+    },
+    {
+      "id": "vita3k.execution.instruction-step-absent",
+      "feature": "execution.step",
+      "kind": "capability_absent",
+      "targets": ["CORE.AVAIL.1", "EXEC.STEP.INSTR.1"],
+      "scope": {"adapter": "vita3k", "systems": ["psvita"]},
+      "activation": {"native_instruction_step": false},
+      "constraints": {"execution.step.units": ["frames"]},
+      "public_behavior": {"invalid": "unsupported"},
+      "verification": ["contract-test:vita3k-producer-advertisement"]
+    },
+    {
+      "id": "vita3k.input-hold.port-zero-only",
+      "feature": "input.hold",
+      "kind": "parameter_constraint",
+      "targets": ["CORE.PARAM.1"],
+      "scope": {"adapter": "vita3k", "systems": ["psvita"]},
+      "activation": {"port": "not_zero"},
+      "constraints": {"input.ports.allowed": [0]},
+      "public_behavior": {"invalid": "bad_params"},
+      "verification": ["contract-test:vita3k-producer-advertisement"]
+    },
+    {
+      "id": "rpcs3.execution.instruction-step-absent",
+      "feature": "execution.step",
+      "kind": "capability_absent",
+      "targets": ["CORE.AVAIL.1", "EXEC.STEP.INSTR.1"],
+      "scope": {"adapter": "rpcs3", "systems": ["ps3"]},
+      "activation": {"native_instruction_step": false},
+      "constraints": {"execution.step.units": ["frames"]},
+      "public_behavior": {"invalid": "unsupported"},
+      "verification": ["contract-test:rpcs3-producer-advertisement"]
+    },
+    {
+      "id": "rpcs3.input-hold.port-zero-only",
+      "feature": "input.hold",
+      "kind": "parameter_constraint",
+      "targets": ["CORE.PARAM.1"],
+      "scope": {"adapter": "rpcs3", "systems": ["ps3"]},
+      "activation": {"port": "not_zero"},
+      "constraints": {"input.ports.allowed": [0]},
+      "public_behavior": {"invalid": "bad_params"},
+      "verification": ["contract-test:rpcs3-producer-advertisement"]
+    },
+    {
+      "id": "cemu.execution.instruction-step-absent",
+      "feature": "execution.step",
+      "kind": "capability_absent",
+      "targets": ["CORE.AVAIL.1", "EXEC.STEP.INSTR.1"],
+      "scope": {"adapter": "cemu", "systems": ["wiiu"]},
+      "activation": {"native_instruction_step": false},
+      "constraints": {"execution.step.units": ["frames"]},
+      "public_behavior": {"invalid": "unsupported"},
+      "verification": ["contract-test:cemu-producer-advertisement"]
+    },
+    {
+      "id": "cemu.input-hold.port-zero-only",
+      "feature": "input.hold",
+      "kind": "parameter_constraint",
+      "targets": ["CORE.PARAM.1"],
+      "scope": {"adapter": "cemu", "systems": ["wiiu"]},
+      "activation": {"port": "not_zero"},
+      "constraints": {"input.ports.allowed": [0]},
+      "public_behavior": {"invalid": "bad_params"},
+      "verification": ["contract-test:cemu-producer-advertisement"]
     }
   ]
 }

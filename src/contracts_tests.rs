@@ -609,3 +609,126 @@ fn azahar_producer_advertisement() {
     let foreign = validate_advertisement(&ad, Some("desmume_nds"), Some("3ds"), &methods);
     assert_eq!(foreign.state, "unvalidated");
 }
+
+#[test]
+fn vita3k_producer_advertisement() {
+    let exceptions = [
+        "vita3k.execution.instruction-step-absent",
+        "vita3k.input-hold.port-zero-only",
+    ];
+    let value = advertisement_value(&exceptions);
+    let ad = ContractAdvertisement::Reported(serde_json::from_value(value).unwrap());
+    // The method set adapters/_common/emucap_producer advertises with savestates enabled.
+    let methods = [
+        "hello",
+        "status",
+        "get_rom_info",
+        "get_state",
+        "read_memory",
+        "write_memory",
+        "read_memory_batch",
+        "pause",
+        "resume",
+        "step",
+        "set_input",
+        "screenshot",
+        "poll_events",
+        "list_breakpoints",
+        "clear_all_breakpoints",
+        "reset",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect::<Vec<_>>();
+    let status = validate_advertisement(&ad, Some("vita3k"), Some("psvita"), &methods);
+    assert_eq!(status.state, "validated", "{:?}", status.errors);
+    assert_eq!(
+        status.constraints["execution.step.units"],
+        json!(["frames"])
+    );
+    assert_eq!(status.constraints["input.ports.allowed"], json!([0]));
+    let foreign = validate_advertisement(&ad, Some("desmume_nds"), Some("psvita"), &methods);
+    assert_eq!(foreign.state, "unvalidated");
+}
+
+#[test]
+fn rpcs3_producer_advertisement() {
+    let exceptions = [
+        "rpcs3.execution.instruction-step-absent",
+        "rpcs3.input-hold.port-zero-only",
+    ];
+    let value = advertisement_value(&exceptions);
+    let ad = ContractAdvertisement::Reported(serde_json::from_value(value).unwrap());
+    // The method set adapters/_common/emucap_producer advertises with savestates enabled.
+    let methods = [
+        "hello",
+        "status",
+        "get_rom_info",
+        "get_state",
+        "read_memory",
+        "write_memory",
+        "read_memory_batch",
+        "pause",
+        "resume",
+        "step",
+        "set_input",
+        "screenshot",
+        "poll_events",
+        "list_breakpoints",
+        "clear_all_breakpoints",
+        "reset",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect::<Vec<_>>();
+    let status = validate_advertisement(&ad, Some("rpcs3"), Some("ps3"), &methods);
+    assert_eq!(status.state, "validated", "{:?}", status.errors);
+    assert_eq!(
+        status.constraints["execution.step.units"],
+        json!(["frames"])
+    );
+    assert_eq!(status.constraints["input.ports.allowed"], json!([0]));
+    let foreign = validate_advertisement(&ad, Some("desmume_nds"), Some("ps3"), &methods);
+    assert_eq!(foreign.state, "unvalidated");
+}
+
+#[test]
+fn cemu_producer_advertisement() {
+    let exceptions = [
+        "cemu.execution.instruction-step-absent",
+        "cemu.input-hold.port-zero-only",
+    ];
+    let value = advertisement_value(&exceptions);
+    let ad = ContractAdvertisement::Reported(serde_json::from_value(value).unwrap());
+    // The method set adapters/_common/emucap_producer advertises with savestates enabled.
+    let methods = [
+        "hello",
+        "status",
+        "get_rom_info",
+        "get_state",
+        "read_memory",
+        "write_memory",
+        "read_memory_batch",
+        "pause",
+        "resume",
+        "step",
+        "set_input",
+        "screenshot",
+        "poll_events",
+        "list_breakpoints",
+        "clear_all_breakpoints",
+        "reset",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect::<Vec<_>>();
+    let status = validate_advertisement(&ad, Some("cemu"), Some("wiiu"), &methods);
+    assert_eq!(status.state, "validated", "{:?}", status.errors);
+    assert_eq!(
+        status.constraints["execution.step.units"],
+        json!(["frames"])
+    );
+    assert_eq!(status.constraints["input.ports.allowed"], json!([0]));
+    let foreign = validate_advertisement(&ad, Some("desmume_nds"), Some("wiiu"), &methods);
+    assert_eq!(foreign.state, "unvalidated");
+}
